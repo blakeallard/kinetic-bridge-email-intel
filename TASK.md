@@ -1,0 +1,132 @@
+# BI1-T110: Design and Implement AI Email Intelligence Workflow
+
+Zoho Task ID: 2543412000001583003
+
+## Metadata
+
+- Task key: `BI1-T110`
+- Immutable task ID: `2543412000001583003`
+- Title: Design and Implement AI Email Intelligence Workflow
+- Status: In Progress
+- Owner: 923987103
+- Tags: repo-needed
+- Zoho task URL: Not provided
+- Repository URL: https://github.com/blake-bevco-tech/bi1-t110-design-and-implement-ai-email-intelligence-workflow
+- Generated at: 2026-07-16T01:02:04-07:00
+
+## Original Zoho Task Scope
+
+Implement the approved AI-powered customer communication intelligence architecture: TeamInbox (communication layer) → Zoho Flow triage → CRM context lookup → Zia Agent (structured JSON in, recommendations out, read-only) → AI_Recommendations CRM module (human approval gate) → Zoho Flow execution → CRM / Meeting / WorkDrive / QTS tasks / Projects. See first comment for the full approved architecture summary. Implementation follows Phases 0–7; all build work occurs from the GitHub repository created via the repo-needed lifecycle automation.
+
+## Acceptance Criteria
+
+- Preserve the original task intent unless approved scope changes are documented in the repo.
+- Add task-specific acceptance criteria here once they are confirmed from source evidence.
+
+## Boundaries
+
+- Treat this file as the imported task snapshot and scope anchor for the repo.
+- Document task-specific constraints, approvals, and out-of-scope decisions here when they become explicit.
+
+## Sanitized Zoho API metadata
+
+```json
+{
+  "milestone_id": "2543412000000000073",
+  "link": {
+    "timesheet": {
+      "url": "https://projectsapi.zoho.com/restapi/portal/898600220/projects/2543412000001324010/tasks/2543412000001583003/logs/"
+    },
+    "web": {
+      "url": "https://projects.zoho.com/portal/bevcollc#zp/task-detail/2543412000001583003"
+    },
+    "self": {
+      "url": "https://projectsapi.zoho.com/restapi/portal/898600220/projects/2543412000001324010/tasks/2543412000001583003/"
+    }
+  },
+  "description": "Implement the approved AI-powered customer communication intelligence architecture: TeamInbox (communication layer) → Zoho Flow triage → CRM context lookup → Zia Agent (structured JSON in, recommendations out, read-only) → AI_Recommendations CRM module (human approval gate) → Zoho Flow execution → CRM / Meeting / WorkDrive / QTS tasks / Projects. See first comment for the full approved architecture summary. Implementation follows Phases 0–7; all build work occurs from the GitHub repository created via the repo-needed lifecycle automation.",
+  "created_by_zpuid": "2543412000001324206",
+  "work_form": "standard_work",
+  "is_comment_added": true,
+  "duration": "0",
+  "added_via": "api",
+  "last_updated_time_long": 1784188674850,
+  "is_forum_associated": false,
+  "details": {
+    "owners": [
+      {
+        "zpuid": "2543412000001324206",
+        "full_name": "Blake Allard",
+        "work": "100",
+        "name": "Blake Allard",
+        "last_name": "Allard",
+        "id": "923987103",
+        "first_name": "Blake",
+        "email": "blake@kinetic-bridge.com"
+      }
+    ]
+  },
+  "id": 2543412000001583003,
+  "created_by_email": "blake@kinetic-bridge.com",
+  "key": "BI1-T110",
+  "created_person": "Blake Allard",
+  "created_time_long": 1784188454312,
+  "created_time": "07-16-2026",
+  "is_reminder_set": false,
+  "is_recurrence_set": false,
+  "created_time_format": "07-16-2026 12:54:14 AM",
+  "created_by_full_name": "Blake Allard",
+  "subtasks": false,
+  "work": "00:00",
+  "custom_fields": [],
+  "duration_type": "days",
+  "isparent": false,
+  "work_type": "work_hours",
+  "completed": false,
+  "task_followers": {
+    "FOLUSERS": "",
+    "FOLLOWERSIZE": -1,
+    "FOLLOWERS": []
+  },
+  "priority": "High",
+  "task_duration_as_work": true,
+  "created_by": "923987103",
+  "percent_complete": "0",
+  "tags": [
+    {
+      "color_hexcode": "#000000",
+      "name": "repo-needed",
+      "id": "2543412000001523001"
+    }
+  ],
+  "GROUP_NAME": {
+    "ASSOCIATED_TEAMS": {
+      "AnyTeam": "Not Associated"
+    },
+    "ASSOCIATED_TEAMS_COUNT": 0,
+    "IS_TEAM_UNASSIGNED": true
+  },
+  "last_updated_time": "07-16-2026",
+  "name": "Design and Implement AI Email Intelligence Workflow",
+  "is_docs_assocoated": false,
+  "id_string": "2543412000001583003",
+  "log_hours": {
+    "non_billable_hours": "0.0",
+    "billable_hours": "0.0"
+  },
+  "tasklist": {
+    "name": "General",
+    "id_string": "2543412000001324210",
+    "id": "2543412000001324210"
+  },
+  "last_updated_time_format": "07-16-2026 12:57:54 AM",
+  "billingtype": "None",
+  "order_sequence": 41,
+  "status": {
+    "name": "In Progress",
+    "id": "2543412000000031001",
+    "type": "open",
+    "color_code": "#f56b62"
+  }
+}
+```

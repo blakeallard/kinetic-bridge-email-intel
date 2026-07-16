@@ -1,0 +1,26 @@
+---
+name: Zoho Task
+about: Track work imported or mirrored from Zoho Projects
+title: "[BI1-T110] "
+labels: zoho-task
+assignees: ""
+---
+
+## Zoho Metadata
+
+- Zoho Project ID:
+- Zoho Task ID: 2543412000001583003
+- Zoho Task Key: BI1-T110
+- Zoho URL:
+
+## Task Summary
+
+## Requirements
+
+## Current State
+
+## Acceptance Criteria
+
+## Agent Notes
+
+## Deployment Notes

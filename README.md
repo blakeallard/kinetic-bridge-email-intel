@@ -1,0 +1,30 @@
+# BI1-T110: Design and Implement AI Email Intelligence Workflow
+
+Zoho Task ID: 2543412000001583003
+
+## Purpose
+
+Implement the approved AI-powered customer communication intelligence architecture: TeamInbox (communication layer) → Zoho Flow triage → CRM context lookup → Zia Agent (structured JSON in, recommendations out, read-only) → AI_Recommendations CRM module (human approval gate) → Zoho Flow execution → CRM / Meeting / WorkDrive / QTS tasks / Projects. See first comment for the full approved architecture summary. Implementation follows Phases 0–7; all build work occurs from the GitHub repository created via the repo-needed lifecycle automation.
+
+## Project Overview
+
+- Task key: `BI1-T110`
+- Title: Design and Implement AI Email Intelligence Workflow
+- Zoho task ID: `2543412000001583003`
+- Source system: Zoho Projects
+- Repository: https://github.com/blake-bevco-tech/bi1-t110-design-and-implement-ai-email-intelligence-workflow
+
+## Getting Started
+
+1. Read `TASK.md` for the imported task scope, metadata, and boundaries.
+2. Read `AGENTS.md` for agent workflow, approval, validation, and handoff rules.
+3. Read `docs/CURRENT_HANDOFF.md` for the active state of the repo before changing files.
+
+## High-Level Architecture
+
+- `TASK.md`: source task metadata and description
+- `AGENTS.md`: shared execution rules for coding agents working in this repo
+- `docs/CURRENT_HANDOFF.md`: current state, round history, blockers, and next step
+- `docs/`: documentation and deliverables
+- `scripts/`: task-specific implementation
+- `artifacts/`: approved supporting artifacts
