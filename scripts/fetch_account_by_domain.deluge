@@ -1,0 +1,36 @@
+string fetch_account_by_domain(string domain)
+{
+accountId = "";
+normalizedDomain = ifnull(domain,"").trim().toLowerCase();
+if(normalizedDomain != "")
+{
+	params = Map();
+	params.put("criteria","(Email_Domain:equals:" + normalizedDomain + ")");
+	params.put("fields","id,Account_Name,Email_Domain");
+	params.put("page","1");
+	params.put("per_page","10");
+	response = invokeurl
+	[
+		url :"https://www.zohoapis.com/crm/v8/Accounts/search"
+		type :GET
+		parameters:params
+		connection:"zoho_crm_to_zoho_flow"
+	];
+	if(response != null)
+	{
+		records = response.get("data");
+		if(records != null)
+		{
+			for each  record in records
+			{
+				recordDomain = ifnull(record.get("Email_Domain"),"").trim().toLowerCase();
+				if(accountId == "" && recordDomain == normalizedDomain)
+				{
+					accountId = ifnull(record.get("id"),"").toString();
+				}
+			}
+		}
+	}
+}
+return accountId;
+}

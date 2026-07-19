@@ -1,0 +1,106 @@
+map normalize_teaminbox_payload(map payload)
+{
+normalized = Map();
+from_data = payload.get("from");
+if(from_data == null)
+{
+	from_data = Map();
+}
+to_data = payload.get("to");
+if(to_data == null)
+{
+	to_data = Map();
+}
+cc_data = payload.get("cc");
+if(cc_data == null)
+{
+	cc_data = Map();
+}
+bcc_data = payload.get("bcc");
+if(bcc_data == null)
+{
+	bcc_data = Map();
+}
+date_data = payload.get("date");
+if(date_data == null)
+{
+	date_data = Map();
+}
+event_data = payload.get("event");
+if(event_data == null)
+{
+	event_data = Map();
+}
+content_data = payload.get("content");
+if(content_data == null)
+{
+	content_data = Map();
+}
+message_id = "";
+if(payload.get("messageId") != null)
+{
+	message_id = payload.get("messageId").toString();
+}
+portal_id = "";
+if(payload.get("portalId") != null)
+{
+	portal_id = payload.get("portalId").toString();
+}
+event_id = "";
+if(event_data.get("eventId") != null)
+{
+	event_id = event_data.get("eventId").toString();
+}
+sent_at_ms = "";
+if(date_data.get("sentDateInGMT") != null)
+{
+	sent_at_ms = date_data.get("sentDateInGMT").toString();
+}
+received_at_ms = "";
+if(date_data.get("receivedTime") != null)
+{
+	received_at_ms = date_data.get("receivedTime").toString();
+}
+from_email = ifnull(from_data.get("fromAddress"),"").trim().toLowerCase();
+from_domain = "";
+email_parts = from_email.toList("@");
+if(email_parts.size() == 2)
+{
+	from_domain = email_parts.get(1);
+}
+to_email = ifnull(to_data.get("toAddress"),"").trim().toLowerCase();
+event_name = ifnull(event_data.get("eventName"),"").trim();
+is_inbound = event_name == "NEW_INBOUND_MESSAGE";
+is_finance_inbox = to_email.startsWith("ap@") || to_email.startsWith("ar@");
+should_process = is_inbound && !is_finance_inbox;
+skip_reason = "";
+if(!is_inbound)
+{
+	skip_reason = "non_inbound_event";
+}
+else if(is_finance_inbox)
+{
+	skip_reason = "finance_inbox";
+}
+normalized.put("schema_version","1.0");
+normalized.put("source","zoho_teaminbox");
+normalized.put("portal_id",portal_id);
+normalized.put("event_id",event_id);
+normalized.put("event_name",event_name);
+normalized.put("message_id",message_id);
+normalized.put("idempotency_key","teaminbox:" + portal_id + ":" + message_id);
+normalized.put("from_name",ifnull(from_data.get("senderName"),""));
+normalized.put("from_email",from_email);
+normalized.put("to_email",to_email);
+normalized.put("cc_email",ifnull(cc_data.get("ccAddress"),""));
+normalized.put("bcc_email",ifnull(bcc_data.get("bccAddress"),""));
+normalized.put("subject",ifnull(payload.get("subject"),""));
+normalized.put("summary",ifnull(payload.get("summary"),""));
+normalized.put("body_html",ifnull(content_data.get("mailContent"),""));
+normalized.put("sent_at_ms",sent_at_ms);
+normalized.put("received_at_ms",received_at_ms);
+normalized.put("should_process",should_process);
+normalized.put("skip_reason",skip_reason);
+normalized.put("from_domain",from_domain);
+return normalized;
+}

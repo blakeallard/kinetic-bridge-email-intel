@@ -1,0 +1,62 @@
+map build_ai_analysis_request(map normalized_message, map crm_context, map crm_snapshot)
+{
+body_html = ifnull(normalized_message.get("body_html"),"");
+body_text = body_html.replaceAll("<[^>]*>"," ");
+body_text = body_text.replaceAll("&nbsp;"," ",true).trim();
+if(body_text == "")
+{
+	body_text = ifnull(normalized_message.get("summary"),"").trim();
+}
+if(body_text == "")
+{
+	body_text = ifnull(normalized_message.get("subject"),"").trim();
+}
+message = Map();
+message.put("message_id",ifnull(normalized_message.get("message_id"),"").toString());
+message.put("idempotency_key",ifnull(normalized_message.get("idempotency_key"),""));
+message.put("source","zoho_teaminbox");
+message.put("from_email",ifnull(normalized_message.get("from_email"),""));
+message.put("from_name",ifnull(normalized_message.get("from_name"),""));
+message.put("from_domain",ifnull(normalized_message.get("from_domain"),""));
+message.put("to_email",ifnull(normalized_message.get("to_email"),""));
+message.put("cc_email",ifnull(normalized_message.get("cc_email"),""));
+message.put("subject",ifnull(normalized_message.get("subject"),""));
+message.put("summary",ifnull(normalized_message.get("summary"),""));
+message.put("body_text",body_text);
+message.put("received_at_ms",ifnull(normalized_message.get("received_at_ms"),"").toString());
+snapshot = Map();
+snapshot.put("lead_status",ifnull(crm_snapshot.get("lead_status"),""));
+snapshot.put("contact_lifecycle_stage",ifnull(crm_snapshot.get("contact_lifecycle_stage"),""));
+snapshot.put("account_name",ifnull(crm_snapshot.get("account_name"),""));
+snapshot.put("account_lifecycle_stage",ifnull(crm_snapshot.get("account_lifecycle_stage"),""));
+open_deals = crm_snapshot.get("open_deals");
+if(open_deals == null)
+{
+	open_deals = List();
+}
+open_cases = crm_snapshot.get("open_cases");
+if(open_cases == null)
+{
+	open_cases = List();
+}
+open_tasks = crm_snapshot.get("open_tasks");
+if(open_tasks == null)
+{
+	open_tasks = List();
+}
+snapshot.put("open_deals",open_deals);
+snapshot.put("open_cases",open_cases);
+snapshot.put("open_tasks",open_tasks);
+policy = Map();
+policy.put("read_only",true);
+policy.put("human_approval_required",true);
+policy.put("closed_won_auto_execution_allowed",false);
+policy.put("qts_quote_generation_allowed",false);
+request = Map();
+request.put("schema_version","1.0");
+request.put("message",message);
+request.put("crm_context",crm_context);
+request.put("crm_snapshot",snapshot);
+request.put("policy",policy);
+return request;
+}

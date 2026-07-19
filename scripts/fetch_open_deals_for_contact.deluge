@@ -1,0 +1,29 @@
+list fetch_open_deals_for_contact(string contact_id)
+{
+open_deals = List();
+contact_id = ifnull(contact_id,"").trim();
+if(contact_id == "")
+{
+	return open_deals;
+}
+related_deals = zoho.crm.getRelatedRecords("Deals","Contacts",contact_id.toLong(),1,200);
+for each  deal_record in related_deals
+{
+	stage = ifnull(deal_record.get("Stage"),"");
+	if(stage != "Closed Won" && stage != "Closed Lost")
+	{
+		deal_item = Map();
+		deal_id = ifnull(deal_record.get("id"),"");
+		deal_name = ifnull(deal_record.get("Deal_Name"),"");
+		deal_amount = ifnull(deal_record.get("Amount"),0);
+		closing_date = ifnull(deal_record.get("Closing_Date"),"");
+		deal_item.put("id",deal_id.toString());
+		deal_item.put("name",deal_name);
+		deal_item.put("stage",stage);
+		deal_item.put("amount",deal_amount);
+		deal_item.put("closing_date",closing_date.toString());
+		open_deals.add(deal_item);
+	}
+}
+return open_deals;
+}

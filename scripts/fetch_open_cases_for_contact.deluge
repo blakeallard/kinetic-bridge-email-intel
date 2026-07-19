@@ -1,0 +1,24 @@
+list fetch_open_cases_for_contact(string contact_id)
+{
+open_cases = List();
+contact_id = ifnull(contact_id,"").trim();
+if(contact_id == "")
+{
+	return open_cases;
+}
+related_cases = zoho.crm.getRelatedRecords("Cases","Contacts",contact_id.toLong(),1,200);
+for each  case_record in related_cases
+{
+	status = ifnull(case_record.get("Status"),"");
+	if(status != "Closed")
+	{
+		case_item = Map();
+		case_item.put("id",ifnull(case_record.get("id"),"").toString());
+		case_item.put("subject",ifnull(case_record.get("Subject"),""));
+		case_item.put("status",status);
+		case_item.put("priority",ifnull(case_record.get("Priority"),""));
+		open_cases.add(case_item);
+	}
+}
+return open_cases;
+}

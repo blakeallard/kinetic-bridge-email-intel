@@ -1,0 +1,24 @@
+list fetch_open_tasks_for_contact(string contact_id)
+{
+open_tasks = List();
+contact_id = ifnull(contact_id,"").trim();
+if(contact_id == "")
+{
+	return open_tasks;
+}
+related_tasks = zoho.crm.getRelatedRecords("Tasks","Contacts",contact_id.toLong(),1,200);
+for each  task_record in related_tasks
+{
+	status = ifnull(task_record.get("Status"),"");
+	if(status != "Completed")
+	{
+		task_item = Map();
+		task_item.put("id",ifnull(task_record.get("id"),"").toString());
+		task_item.put("subject",ifnull(task_record.get("Subject"),""));
+		task_item.put("status",status);
+		task_item.put("due_date",ifnull(task_record.get("Due_Date"),"").toString());
+		open_tasks.add(task_item);
+	}
+}
+return open_tasks;
+}

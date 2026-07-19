@@ -1,0 +1,52 @@
+map build_crm_context(string from_email, string from_domain, string contact_id, string lead_id, string account_id)
+{
+safe_email = ifnull(from_email,"").trim();
+safe_domain = ifnull(from_domain,"").trim();
+safe_contact_id = ifnull(contact_id,"").trim();
+safe_lead_id = ifnull(lead_id,"").trim();
+safe_account_id = ifnull(account_id,"").trim();
+match_status = "no_match";
+match_type = "none";
+matched_module = "";
+matched_record_id = "";
+match_method = "";
+if(safe_contact_id != "")
+{
+	match_status = "matched";
+	match_type = "contact";
+	matched_module = "Contacts";
+	matched_record_id = safe_contact_id;
+	match_method = "exact_email";
+}
+else if(safe_lead_id != "")
+{
+	match_status = "matched";
+	match_type = "lead";
+	matched_module = "Leads";
+	matched_record_id = safe_lead_id;
+	match_method = "exact_email";
+}
+else if(safe_account_id != "")
+{
+	match_status = "matched";
+	match_type = "account";
+	matched_module = "Accounts";
+	matched_record_id = safe_account_id;
+	match_method = "sender_domain";
+}
+result = Map();
+result.put("schema_version","1.0");
+result.put("source","zoho_teaminbox");
+result.put("from_email",safe_email);
+result.put("from_domain",safe_domain);
+result.put("match_status",match_status);
+result.put("match_type",match_type);
+result.put("matched_module",matched_module);
+result.put("matched_record_id",matched_record_id);
+result.put("match_method",match_method);
+result.put("contact_id",safe_contact_id);
+result.put("lead_id",safe_lead_id);
+result.put("account_id",safe_account_id);
+result.put("precedence","contact>lead>account_domain");
+return result;
+}

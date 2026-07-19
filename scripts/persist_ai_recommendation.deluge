@@ -1,0 +1,105 @@
+// persist_ai_recommendation
+// BI1-T110 Step 7 — persistence stage.
+// Creates one AI_Recommendations record in "Pending Review" status from a validated Zia
+// result, keyed by the trusted idempotency_key. Idempotent: a replayed message hits the
+// unique Idempotency_Key constraint and is reported as already-recorded rather than
+// duplicated.
+//
+// DRAFT — depends on the AI_Recommendations module existing (Tier-3 / Bill-approved
+// schema change). Field API names must be reconciled with the created module.
+// See docs/ai_recommendations_module_spec.md.
+//
+// This function does NOT execute the recommended action. It only persists the pending
+// recommendation for human approval.
+
+map persist_ai_recommendation(map validated_analysis)
+{
+result = Map();
+idempotency_key = ifnull(validated_analysis.get("idempotency_key"),"").toString().trim();
+if(idempotency_key == "")
+{
+	result.put("status","error");
+	result.put("reason","missing_idempotency_key");
+	result.put("created",false);
+	return result;
+}
+// Duplicate guard: check first so replays are cheap and explicit.
+search_params = Map();
+search_params.put("criteria","(Idempotency_Key:equals:" + idempotency_key + ")");
+existing = zoho.crm.searchRecords("AI_Recommendations","(Idempotency_Key:equals:" + idempotency_key + ")");
+if(existing != null && existing.size() > 0)
+{
+	existing_id = ifnull(existing.get(0).get("id"),"").toString();
+	result.put("status","duplicate");
+	result.put("reason","idempotency_key_exists");
+	result.put("created",false);
+	result.put("record_id",existing_id);
+	return result;
+}
+recommendation = ifnull(validated_analysis.get("recommendation"),Map());
+intent = ifnull(validated_analysis.get("intent"),Map());
+lifecycle = ifnull(validated_analysis.get("lifecycle_interpretation"),Map());
+safety = ifnull(validated_analysis.get("safety"),Map());
+opportunity_signals = ifnull(validated_analysis.get("opportunity_signals"),List());
+conflicts = ifnull(safety.get("conflicts"),List());
+message_id = ifnull(validated_analysis.get("message_id"),"").toString();
+action = ifnull(recommendation.get("action"),"manual_review").toString();
+insufficient = ifnull(safety.get("contains_insufficient_context"),false);
+// Ingestion Flow only ever writes a review status. Never Approved/Executed here.
+status_value = "Pending Review";
+if(action == "manual_review" || insufficient == true)
+{
+	status_value = "Manual Review";
+}
+record = Map();
+record.put("Name","Rec " + message_id);
+record.put("Idempotency_Key",idempotency_key);
+record.put("Message_Id",message_id);
+record.put("Status",status_value);
+record.put("Recommended_Action",action);
+record.put("Confidence_Band",ifnull(recommendation.get("confidence_band"),"low"));
+record.put("Rationale",ifnull(recommendation.get("rationale"),""));
+record.put("Review_Notes",ifnull(recommendation.get("review_notes"),""));
+record.put("Target_Module",ifnull(recommendation.get("target_module"),""));
+record.put("Target_Record_Id",ifnull(recommendation.get("target_record_id"),"").toString());
+record.put("Intent_Category",ifnull(intent.get("category"),"unknown"));
+record.put("Intent_Summary",ifnull(intent.get("summary"),""));
+record.put("Opportunity_Signals",opportunity_signals.toString());
+record.put("Lifecycle_Observed_Stage",ifnull(lifecycle.get("observed_stage"),""));
+record.put("Lifecycle_Recommended_Stage",ifnull(lifecycle.get("recommended_stage"),""));
+record.put("Lifecycle_Change_Recommended",ifnull(lifecycle.get("change_recommended"),false));
+// Safety invariants — written regardless of model output.
+record.put("Human_Approval_Required",true);
+record.put("Closed_Won_Change_Requested",ifnull(safety.get("closed_won_change_requested"),false));
+record.put("Quote_Generation_Requested",ifnull(safety.get("quote_generation_requested"),false));
+record.put("Contains_Insufficient_Context",insufficient);
+record.put("Conflicts",conflicts.toString());
+record.put("Schema_Version",ifnull(validated_analysis.get("schema_version"),"1.0"));
+record.put("Source","zoho_teaminbox");
+record.put("Validated_Analysis",validated_analysis.toString());
+create_response = zoho.crm.createRecord("AI_Recommendations",record);
+new_id = "";
+if(create_response != null)
+{
+	new_id = ifnull(create_response.get("id"),"").toString();
+}
+if(new_id != "")
+{
+	result.put("status","created");
+	result.put("created",true);
+	result.put("record_id",new_id);
+	result.put("record_status",status_value);
+	result.put("idempotency_key",idempotency_key);
+}
+else
+{
+	// Likely a unique-constraint race or a validation error. Treat as non-fatal and
+	// route to manual review rather than failing the Flow.
+	result.put("status","error");
+	result.put("created",false);
+	result.put("reason","create_failed");
+	result.put("raw_response",create_response.toString());
+	result.put("idempotency_key",idempotency_key);
+}
+return result;
+}

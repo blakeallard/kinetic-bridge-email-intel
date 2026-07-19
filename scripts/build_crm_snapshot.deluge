@@ -1,0 +1,66 @@
+map build_crm_snapshot(string contact_id, string lead_id, string account_id, list open_deals, list open_cases, list open_tasks)
+{
+snapshot = Map();
+contact_id = ifnull(contact_id,"").trim();
+lead_id = ifnull(lead_id,"").trim();
+account_id = ifnull(account_id,"").trim();
+lead_status = null;
+contact_lifecycle_stage = null;
+account_name = null;
+account_lifecycle_stage = null;
+resolved_account_id = account_id;
+if(contact_id != "")
+{
+	contact_record = zoho.crm.getRecordById("Contacts",contact_id.toLong());
+	if(contact_record != null)
+	{
+		contact_lifecycle_stage = contact_record.get("Lifecycle_Stage");
+		account_lookup = contact_record.get("Account_Name");
+		if(account_lookup != null)
+		{
+			account_name = account_lookup.get("name");
+			if(resolved_account_id == "")
+			{
+				resolved_account_id = ifnull(account_lookup.get("id"),"").toString();
+			}
+		}
+	}
+}
+if(lead_id != "")
+{
+	lead_record = zoho.crm.getRecordById("Leads",lead_id.toLong());
+	if(lead_record != null)
+	{
+		lead_status = lead_record.get("Status");
+	}
+}
+if(resolved_account_id != "")
+{
+	account_record = zoho.crm.getRecordById("Accounts",resolved_account_id.toLong());
+	if(account_record != null)
+	{
+		account_name = account_record.get("Account_Name");
+		account_lifecycle_stage = account_record.get("Lifecycle_Stage");
+	}
+}
+if(open_deals == null)
+{
+	open_deals = List();
+}
+if(open_cases == null)
+{
+	open_cases = List();
+}
+if(open_tasks == null)
+{
+	open_tasks = List();
+}
+snapshot.put("lead_status",lead_status);
+snapshot.put("contact_lifecycle_stage",contact_lifecycle_stage);
+snapshot.put("account_name",account_name);
+snapshot.put("account_lifecycle_stage",account_lifecycle_stage);
+snapshot.put("open_deals",open_deals);
+snapshot.put("open_cases",open_cases);
+snapshot.put("open_tasks",open_tasks);
+return snapshot;
+}
