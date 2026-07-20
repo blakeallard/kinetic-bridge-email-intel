@@ -1,0 +1,314 @@
+
+map execute_approved_recommendation(string ai_recommendation_record_id)
+{
+result = Map();
+module_api_name = "AI_Recommendations";
+allowed_recommendation_type = "create_crm_task";
+max_execution_attempts = 3;
+record_id = ifnull(ai_recommendation_record_id,"").toString().trim();
+if(record_id == "")
+{
+	result.put("status","blocked");
+	result.put("reason","record_id_blank");
+	return result;
+}
+execution_key = "ai-execution:" + record_id + ":" + allowed_recommendation_type;
+record = zoho.crm.getRecordById(module_api_name,record_id.toLong());
+if(record == null || record.isEmpty() || ifnull(record.get("id"),"").toString() == "")
+{
+	result.put("status","blocked");
+	result.put("reason","record_not_found");
+	return result;
+}
+status_value = ifnull(record.get("Status"),"").toString().trim();
+validation_status = ifnull(record.get("Validation_Status"),"").toString().trim();
+recommendation_type = ifnull(record.get("Recommendation_Type"),"").toString().trim();
+target_module = ifnull(record.get("Target_Module"),"").toString().trim();
+target_record_id = ifnull(record.get("Target_Record_ID"),"").toString().trim();
+execution_status = ifnull(record.get("Execution_Status"),"").toString().trim();
+executed_task_id = ifnull(record.get("Executed_Task_ID"),"").toString().trim();
+existing_execution_key = ifnull(record.get("Execution_Key"),"").toString().trim();
+message_id = ifnull(record.get("Message_ID"),"").toString().trim();
+idempotency_key = ifnull(record.get("Name"),"").toString().trim();
+review_notes = ifnull(record.get("Review_Notes"),"").toString().trim();
+reviewed_at = ifnull(record.get("Reviewed_At"),"").toString().trim();
+reviewed_by_raw = record.get("Reviewed_By");
+reviewed_by = "";
+if(reviewed_by_raw != null)
+{
+	if(reviewed_by_raw.getJSONMeta() == "JSONOBJECT")
+	{
+		reviewed_by = ifnull(reviewed_by_raw.get("name"),"").toString().trim();
+	}
+	else
+	{
+		reviewed_by = reviewed_by_raw.toString().trim();
+	}
+}
+requires_approval_raw = ifnull(record.get("Requires_Approval"),"").toString().trim();
+created_by_ai_raw = ifnull(record.get("Created_By_AI"),"").toString().trim();
+requires_approval = requires_approval_raw == "true" || requires_approval_raw == "True";
+created_by_ai = created_by_ai_raw == "true" || created_by_ai_raw == "True";
+attempts_raw = record.get("Execution_Attempts");
+execution_attempts = 0;
+if(attempts_raw != null && attempts_raw.toString().trim() != "")
+{
+	execution_attempts = attempts_raw.toLong();
+}
+already_claimed = false;
+if(execution_status == "In Progress" || execution_status == "Executed")
+{
+	already_claimed = true;
+}
+if(executed_task_id != "")
+{
+	already_claimed = true;
+}
+if(existing_execution_key != "")
+{
+	already_claimed = true;
+}
+if(already_claimed)
+{
+	result.put("status","duplicate");
+	result.put("reason","already_claimed");
+	result.put("record_id",record_id);
+	result.put("execution_key",execution_key);
+	result.put("executed_task_id",executed_task_id);
+	return result;
+}
+violations = List();
+if(status_value != "Approved")
+{
+	violations.add("status_not_approved");
+}
+if(requires_approval == false)
+{
+	violations.add("requires_approval_not_true");
+}
+if(created_by_ai == false)
+{
+	violations.add("created_by_ai_not_true");
+}
+if(validation_status != "valid")
+{
+	violations.add("validation_status_not_valid");
+}
+if(recommendation_type != allowed_recommendation_type)
+{
+	violations.add("recommendation_type_not_allowed");
+}
+if(target_module != "Contacts" && target_module != "Leads" && target_module != "Accounts")
+{
+	violations.add("target_module_not_allowed");
+}
+if(target_record_id == "")
+{
+	violations.add("target_record_id_blank");
+}
+if(execution_status != "" && execution_status != "Not Started")
+{
+	violations.add("execution_status_not_claimable");
+}
+if(executed_task_id != "")
+{
+	violations.add("executed_task_id_present");
+}
+if(execution_attempts >= max_execution_attempts)
+{
+	violations.add("execution_attempts_limit_reached");
+}
+if(violations.size() > 0)
+{
+	blocked_update = Map();
+	blocked_update.put("Execution_Status","Blocked");
+	blocked_update.put("Execution_Error","policy_violation: " + violations.toString());
+	zoho.crm.updateRecord(module_api_name,record_id,blocked_update);
+	result.put("status","blocked");
+	result.put("reason","policy_violation");
+	result.put("violations",violations);
+	result.put("record_id",record_id);
+	return result;
+}
+modified_time = ifnull(record.get("Modified_Time"),"").toString().trim();
+if(modified_time == "")
+{
+	result.put("status","failed");
+	result.put("reason","modified_time_unavailable");
+	result.put("record_id",record_id);
+	return result;
+}
+new_attempts = execution_attempts + 1;
+claim_fields = Map();
+claim_fields.put("id",record_id);
+claim_fields.put("Execution_Key",execution_key);
+claim_fields.put("Execution_Status","In Progress");
+claim_fields.put("Execution_Started_At",zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssZ"));
+claim_fields.put("Execution_Attempts",new_attempts);
+claim_rows = List();
+claim_rows.add(claim_fields);
+claim_body = Map();
+claim_body.put("data",claim_rows);
+claim_headers = Map();
+claim_headers.put("If-Unmodified-Since",modified_time);
+claim_response = invokeurl
+[
+	url : "https://www.zohoapis.com/crm/v8/" + module_api_name
+	type : PUT
+	parameters : claim_body.toString()
+	headers : claim_headers
+	connection : "bi1_t110_crm"
+];
+claim_status = "";
+claim_code = "";
+if(claim_response != null)
+{
+	claim_status = ifnull(claim_response.get("status"),"").toString().trim();
+	claim_code = ifnull(claim_response.get("code"),"").toString().trim();
+	claim_rows_out = ifnull(claim_response.get("data"),List());
+	if(claim_rows_out.size() > 0)
+	{
+		claim_row = claim_rows_out.get(0);
+		row_status = ifnull(claim_row.get("status"),"").toString().trim();
+		row_code = ifnull(claim_row.get("code"),"").toString().trim();
+		if(row_status != "")
+		{
+			claim_status = row_status;
+		}
+		if(row_code != "")
+		{
+			claim_code = row_code;
+		}
+	}
+}
+if(claim_status != "success")
+{
+	if(claim_code == "ALREADY_MODIFIED")
+	{
+		result.put("status","duplicate");
+		result.put("reason","claim_lost_race");
+		result.put("record_id",record_id);
+		result.put("execution_key",execution_key);
+		result.put("claim_code",claim_code);
+		return result;
+	}
+	if(claim_code == "DUPLICATE_DATA")
+	{
+		result.put("status","duplicate");
+		result.put("reason","execution_key_conflict");
+		result.put("record_id",record_id);
+		result.put("execution_key",execution_key);
+		result.put("claim_code",claim_code);
+		return result;
+	}
+	result.put("status","failed");
+	result.put("reason","claim_failed");
+	result.put("record_id",record_id);
+	result.put("claim_code",claim_code);
+	return result;
+}
+if(review_notes.length() > 1000)
+{
+	review_notes = review_notes.subString(0,999);
+}
+if(review_notes == "")
+{
+	review_notes = "(none)";
+}
+if(message_id.length() > 255)
+{
+	message_id = message_id.subString(0,254);
+}
+if(idempotency_key.length() > 255)
+{
+	idempotency_key = idempotency_key.subString(0,254);
+}
+if(reviewed_by.length() > 255)
+{
+	reviewed_by = reviewed_by.subString(0,254);
+}
+if(reviewed_at.length() > 255)
+{
+	reviewed_at = reviewed_at.subString(0,254);
+}
+subject = "AI Recommendation: follow up on email " + message_id;
+if(subject.length() > 255)
+{
+	subject = subject.subString(0,254);
+}
+description = "Created by the BI1-T110 approved-action executor.";
+description = description + "\n\nAI Recommendation record: " + record_id;
+description = description + "\nIdempotency key: " + idempotency_key;
+description = description + "\nSource message ID: " + message_id;
+description = description + "\nRecommendation type: " + allowed_recommendation_type;
+description = description + "\nTarget: " + target_module + " / " + target_record_id;
+description = description + "\nApproved by: " + reviewed_by;
+description = description + "\nApproved at: " + reviewed_at;
+description = description + "\n\nReviewer notes:\n" + review_notes;
+description = description + "\n\nThis Task was generated only from persisted, human-approved recommendation fields. The raw AI response was not interpreted and its instructions were not executed. Open the AI Recommendation record to read the original analysis.";
+if(description.length() > 4000)
+{
+	description = description.subString(0,3999);
+}
+task = Map();
+task.put("Subject",subject);
+task.put("Description",description);
+task.put("Status","Not Started");
+task.put("Priority","Normal");
+if(target_module == "Contacts")
+{
+	task.put("Who_Id",target_record_id);
+}
+else
+{
+	task.put("What_Id",target_record_id);
+}
+task.put("$se_module",target_module);
+task_response = zoho.crm.createRecord("Tasks",task);
+new_task_id = "";
+if(task_response != null)
+{
+	new_task_id = ifnull(task_response.get("id"),"").toString().trim();
+}
+if(new_task_id == "")
+{
+	failure_text = "task_create_failed";
+	if(task_response != null)
+	{
+		failure_text = "task_create_failed: " + task_response.toString();
+	}
+	if(failure_text.length() > 500)
+	{
+		failure_text = failure_text.subString(0,499);
+	}
+	failed_update = Map();
+	failed_update.put("Execution_Status","Failed");
+	failed_update.put("Execution_Error",failure_text);
+	zoho.crm.updateRecord(module_api_name,record_id,failed_update);
+	result.put("status","failed");
+	result.put("reason","task_create_failed");
+	result.put("record_id",record_id);
+	result.put("attempts",new_attempts);
+	return result;
+}
+success_update = Map();
+success_update.put("Executed_Task_ID",new_task_id);
+success_update.put("Executed_At",zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssZ"));
+success_update.put("Execution_Status","Executed");
+success_update.put("Execution_Error","");
+success_response = zoho.crm.updateRecord(module_api_name,record_id,success_update);
+if(success_response == null || ifnull(success_response.get("id"),"").toString() == "")
+{
+	result.put("status","failed");
+	result.put("reason","post_execution_write_failed");
+	result.put("record_id",record_id);
+	result.put("executed_task_id",new_task_id);
+	return result;
+}
+result.put("status","executed");
+result.put("record_id",record_id);
+result.put("executed_task_id",new_task_id);
+result.put("execution_key",execution_key);
+result.put("attempts",new_attempts);
+return result;
+}

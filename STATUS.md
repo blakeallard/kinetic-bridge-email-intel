@@ -6,6 +6,8 @@
 
 Zoho Task ID: 2543412000001583003
 
+**Last updated:** 2026-07-19
+
 Canonical current-state file:
 
 - `STATUS.md`
@@ -18,23 +20,106 @@ Current source of truth:
 
 ## Current State
 
-- Repository initialized for `BI1-T110`.
-- Task snapshot recorded in `TASK.md`.
-- AI-agent instructions and GitHub collaboration templates generated.
+Estimated completion: **~70%**.
+
+The ingestion path is live and validated end to end through persistence and human
+approval. The approved-action execution stage is implemented and tested in this
+repository but **not deployed** — no Zoho Flow, custom function, or CRM Task has been
+created for it.
+
+### Verified live in Zoho
+
+- TeamInbox webhook ingestion, normalization, and processing gate.
+- Durable early duplicate guard (`check_ai_recommendation_exists` +
+  `Recommendation Already Exists?`); `exists=true` stops, `exists=false` continues.
+- Contact → Lead → Account-domain CRM matching, plus the no-match case.
+- CRM context and snapshot construction; controlled AI request; async Zia execution;
+  trusted response validation. All three matched routes validated.
+- `AI_Recommendations` custom module `6719186000003163020`, its full field set,
+  and the `AI Recommendation Review` Blueprint (published, active).
+- Approval test: record `6719186000003183001` → `Approved`, audit fields set.
+- Rejection test: record `6719186000003185001` → `Rejected`, audit fields set, no CRM
+  action performed.
+- Read-only metadata inspection of the module, its fields, and a real approved record
+  (2026-07-19) — recorded in `docs/live_module_inspection_2026-07-19.md`.
+
+### Implemented locally, not deployed
+
+- `scripts/execute_approved_recommendation.deluge` — the executor custom function.
+- `scripts/execution_policy.py` — the executable specification it translates.
+- `scripts/zoho_crm_admin.py` — Zoho CRM V8 inspection + idempotent setup utility.
+- 114 automated tests, all passing offline with no dependencies — including a
+  two-caller concurrency test proving exactly one execution reaches Task creation,
+  and tests pinning the terminal-failure policy.
+- `docs/execute_approved_recommendation_flow.md` — exact Flow wiring and acceptance
+  tests.
+- `docs/zoho_flow_inventory.md` — source-controlled Flow/function inventory.
 
 ## Completed
 
 - Lifecycle scaffold generated from Zoho task metadata.
+- Steps 1–6: ingestion, matching, context, Zia analysis, validation.
+- Step 7 persistence and the human approval/rejection gate.
+- Step 7 execution stage: implemented, tested, documented — deployment pending.
+
+### Failure policy
+
+A **post-claim** execution failure (`task_create_failed`,
+`post_execution_write_failed`) is **terminal and requires human investigation**.
+`Execution_Key` is never cleared automatically, nothing retries Task creation, and a
+`Failed` record is never moved back to `Not Started`. The reason: a lost Task-creation
+response does not prove the Task was not created, so a blind retry could produce a
+duplicate Task on a customer record. A human must check whether the Task exists before
+changing any execution field.
+
+A **pre-claim** failure (`record_fetch_failed`, `modified_time_unavailable`,
+`blocked_write_failed`, `claim_failed`) authorized no Task creation and may leave the
+record unclaimed. Once the underlying problem is corrected it may be **manually rerun**
+— a fresh invocation refetches the record and re-evaluates the claim. No failure of
+either kind is retried automatically.
+
+`Execution_Attempts` counts *claimed* attempts and reaches at most 1 in this version;
+the `< 3` check is a defensive guard, not a description of three automatic attempts.
+Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
 
 ## Blockers
 
-- None recorded at bootstrap time.
+1. **`Target_Module` metadata mismatch.** The Account route **does** persist —
+   record `6719186000003181001` holds `Target_Module = Accounts`. But `Accounts` is
+   not a defined picklist option (only `-None-`, `Contacts`, `Leads`, `Deals` are), so
+   it is stored as an out-of-list value. Filters, reports, and grouping will miss it,
+   and enabling value restriction would break future writes. Reconciling requires a
+   CRM schema change (**Tier 3 — Bill-only**).
+2. **Ingestion idempotency is not datastore-enforced.** The dedup key is the field
+   labelled `Idempotency_Key`, whose API name is `Name`; it carries no unique
+   constraint. Duplicate checking exists in Zoho Flow
+   (`check_ai_recommendation_exists`) but is a read-then-write, so concurrent delivery
+   of one message can still create two recommendation records.
+3. **`scripts/persist_ai_recommendation.deluge` is stale and undeployable.** It writes
+   ~20 fields that do not exist on the live module. The deployed persistence function
+   differs and has not been exported.
+4. **`check_ai_recommendation_exists` has no repository source.** It is live in Zoho
+   Flow only.
+5. **No Zoho API credentials in the working environment.** Deployment of the executor
+   cannot be performed or proven from here.
 
 ## Next Actions
 
-1. Confirm immediate implementation scope.
-2. Confirm required systems, inputs, and approvals.
-3. Capture the next concrete execution step.
+1. Add `Accounts` to the `Target_Module` picklist so metadata matches the data
+   already stored (Tier 3 approval).
+2. Export `check_ai_recommendation_exists` and the deployed persistence function from
+   Zoho Flow into `scripts/`.
+3. Deploy `execute_approved_recommendation` as a Zoho Flow custom function and build
+   the `Execute Approved AI Recommendation` Flow per
+   `docs/execute_approved_recommendation_flow.md`.
+4. Run acceptance tests 1–10 in that document with the Flow OFF via Test & Debug.
+5. Resolve requirement 17: run `zoho_crm_admin.py inspect-blueprint` to determine
+   whether an API-invocable `Approved → Executed` transition exists.
+6. Settle the Task linkage conflict (acceptance test 5) and the conditional-claim
+   assumption (acceptance test 9) — both are unverified and both are decision points.
+7. Decide the no-match branch behaviour.
+8. Replace the fixed Zia wait with bounded polling and a safe timeout path.
+9. Add ingestion-side idempotency enforcement.
 
 Agent rule:
 

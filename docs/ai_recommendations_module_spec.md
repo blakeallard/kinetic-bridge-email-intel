@@ -2,10 +2,25 @@
 
 Zoho Task ID: 2543412000001583003 (BI1-T110)
 
-**Status:** Proposed. Not yet created in CRM.
-**Blocker:** Creating a custom CRM module is a schema change = **Tier 3 (Bill-only)** approval.
-As of 2026-07-19 the CRM contains **no custom modules** — verified by listing all 52
-org modules; nothing named `AI_Recommendations` (or similar) exists.
+> ## ⚠️ SUPERSEDED — this document describes a module that was never built
+>
+> The module now exists in CRM as `AI_Recommendations` (`6719186000003163020`), but it
+> was built with a **different and smaller field set** than this spec proposes.
+> Roughly twenty fields named below do not exist, and `Target_Record_Id` is actually
+> `Target_Record_ID`.
+>
+> **For live field names, types, IDs, and picklist values, use
+> [`live_module_inspection_2026-07-19.md`](live_module_inspection_2026-07-19.md).**
+> That document is backed by real API responses; this one is not.
+>
+> This file is retained as the original design intent — several fields it proposes
+> (structured rationale, intent, confidence, and safety flags) are genuinely missing
+> from the live module and remain worth adding.
+
+**Original status:** Proposed. Not yet created in CRM.
+**Original blocker:** Creating a custom CRM module is a schema change = **Tier 3
+(Bill-only)** approval. As of an earlier 2026-07-19 check the CRM contained no custom
+modules.
 
 This module is the persistence + human-approval gate between the read-only Zia analysis
 and any approved action execution. Every validated Zia result becomes one record here in
