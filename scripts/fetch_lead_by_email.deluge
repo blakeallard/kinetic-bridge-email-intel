@@ -1,0 +1,24 @@
+string fetch_lead_by_email(string email)
+{
+lead_id = "";
+safe_email = ifnull(email,"").trim().toLowerCase();
+if(safe_email != "")
+{
+	search_options = Map();
+	search_options.put("converted","both");
+	search_options.put("approved","both");
+	leads = zoho.crm.searchRecords("Leads","(Email:equals:" + safe_email + ")",1,10,search_options,"zoho_crm_to_zoho_flow");
+	if(leads != null && leads.size() > 0)
+	{
+		for each  lead in leads
+		{
+			record_email = ifnull(lead.get("Email"),"").trim().toLowerCase();
+			if(lead_id == "" && record_email == safe_email)
+			{
+				lead_id = ifnull(lead.get("id"),"").toString();
+			}
+		}
+	}
+}
+return lead_id;
+}

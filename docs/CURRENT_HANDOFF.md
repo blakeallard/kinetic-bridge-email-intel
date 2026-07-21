@@ -5,6 +5,80 @@
 
 ---
 
+## Round 5 — 2026-07-21 — Repository cleanup and audit
+
+Audited the working tree after the Contact, Lead, Account, and duplicate-replay
+regression tests. Reconciled the repository copy of `build_crm_snapshot` to the
+verified live `Lead_Status` API field, corrected stale signatures and the retired
+native Fetch Lead block in the Flow inventory, linked the new walkthrough and test
+suite from the README, and added static regression checks for the custom Lead lookup.
+
+The untracked `plan/flows/` diagnostic capture includes a screenshot containing a
+credential-bearing Zoho webhook URL. Its material screenshots were preserved locally,
+but the entire capture directory is now ignored so it cannot be accidentally staged.
+Generated `.DS_Store` files and Python bytecode caches were removed. The pre-existing
+uncommitted executor edit was left untouched.
+
+Validation performed after cleanup:
+
+- `python3 -m json.tool samples/teaminbox_test_payloads.json` — passed.
+- `python3 -m unittest discover -s tests` — 119 tests passed.
+- `python3 -m py_compile scripts/execution_policy.py scripts/zoho_crm_admin.py tests/test_execution_policy.py tests/test_deluge_parity.py tests/test_ingestion_artifacts.py tests/test_zoho_crm_admin.py` — passed.
+- `git diff --check` — passed.
+- tracked-file credential-pattern scan — no embedded credential values found; only
+  expected environment-variable/token-management identifiers were present.
+- `plan/flows/` ignore rule verified with `git check-ignore`.
+- Ruff remains unavailable in the configured Python environment. No local Deluge
+  compiler exists; the changed Lead status field is reconciled from the live function
+  source supplied and already exercised in Zoho Test & Debug.
+
+Remaining audit risks: two live custom functions still lack source exports;
+`persist_ai_recommendation.deluge` is a stale undeployed draft while the live Flow
+uses route-specific CRM actions; and the repository tracks about 19 MB of older plan
+images. Those existing plan images were preserved because they are material user
+artifacts, not generated clutter.
+
+---
+
+## Round 4 — 2026-07-21 — CRM matching regression and Fetch Lead recovery
+
+The Flow remained OFF and was exercised through Test & Debug. Zoho Flow's native
+Fetch Lead action showed a populated (and later literal) Email in configuration but
+sent `Email: ""` at runtime. It was replaced by `fetch_lead_by_email`, which returned
+Lead `6719186000003163012`. Lead, Contact, and Account routes were then validated
+through trusted Zia validation and `Pending Review` persistence.
+
+Verified recommendation records:
+
+- Lead replay key `RECOVERY-LEAD-013` -> `6719186000003247001`; replay stopped early.
+- Contact key `REGRESSION-CONTACT-016` -> `6719186000003249001`.
+- Account key `REGRESSION-ACCOUNT-018` -> `6719186000003250001`.
+
+Copied-route defects corrected live: Lead request builder received `body_html` instead
+of the full normalized map; Contact persistence omitted validated JSON and review
+notes; Account validator inputs were blank; persistence blocks referenced obsolete
+validator variables. No approved action or CRM Task was created by these ingestion
+tests.
+
+Repository additions: `scripts/fetch_lead_by_email.deluge`, reusable sanitized test
+payloads, and `docs/teaminbox_flow_complete_breakdown.md`.
+
+Validation performed:
+
+- `python3 -m json.tool samples/teaminbox_test_payloads.json` — passed.
+- `python3 -m unittest discover -s tests` — 114 tests passed.
+- `python3 -m py_compile scripts/execution_policy.py scripts/zoho_crm_admin.py tests/test_execution_policy.py tests/test_deluge_parity.py tests/test_zoho_crm_admin.py` — passed.
+- `git diff --check` — passed.
+- `python3 -m ruff check .` — not run successfully because Ruff is not installed in
+  the configured Python environment (`No module named ruff`).
+- No local Deluge compiler is available. Live Test & Debug execution verified the new
+  Lead lookup behavior and all three matched ingestion routes.
+
+Recommended next task: validate the no-match policy decision, then deploy and test the
+separate approved-action executor per `docs/execute_approved_recommendation_flow.md`.
+
+---
+
 ## Round 3 — 2026-07-19 — Approved-action execution stage
 
 **Branch:** `agent/step-7-ai-recommendations-persistence`

@@ -12,3 +12,6 @@ __pycache__/
 node_modules/
 .venv/
 venv/
+
+# Local Zoho Flow captures. Some screenshots contain credential-bearing webhook URLs.
+plan/flows/

@@ -29,30 +29,34 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 | Function | Signature | State | Source |
 | --- | --- | --- | --- |
 | `normalize_teaminbox_payload` | `(map payload)` → map | LIVE / REPO | `scripts/normalize_teaminbox_payload.deluge` |
-| `fetch_account_by_domain` | `(string domain)` → map | LIVE / REPO | `scripts/fetch_account_by_domain.deluge` |
+| `fetch_lead_by_email` | `(string email)` → string Lead ID | LIVE / REPO | `scripts/fetch_lead_by_email.deluge` |
+| `fetch_account_by_domain` | `(string domain)` → string Account ID | LIVE / REPO | `scripts/fetch_account_by_domain.deluge` |
 | `fetch_open_deals_for_contact` | `(string contact_id)` → list | LIVE / REPO | `scripts/fetch_open_deals_for_contact.deluge` |
 | `fetch_open_cases_for_contact` | `(string contact_id)` → list | LIVE / REPO | `scripts/fetch_open_cases_for_contact.deluge` |
 | `fetch_open_tasks_for_contact` | `(string contact_id)` → list | LIVE / REPO | `scripts/fetch_open_tasks_for_contact.deluge` |
-| `build_crm_context` | `(map match_input)` → map | LIVE / REPO | `scripts/build_crm_context.deluge` |
-| `build_crm_snapshot` | `(map context, …)` → map | LIVE / REPO | `scripts/build_crm_snapshot.deluge` |
+| `fetch_open_tasks_for_lead` | `(string lead_id)` → list | **LIVE, NOT IN REPO** | — |
+| `build_crm_context` | `(string from_email, string from_domain, string contact_id, string lead_id, string account_id)` → map | LIVE / REPO | `scripts/build_crm_context.deluge` |
+| `build_crm_snapshot` | `(string contact_id, string lead_id, string account_id, list open_deals, list open_cases, list open_tasks)` → map | LIVE / REPO | `scripts/build_crm_snapshot.deluge` |
 | `build_ai_analysis_request` | `(map message, map context, map snapshot)` → map | LIVE / REPO | `scripts/build_ai_analysis_request.deluge` |
 | `validate_zia_analysis_response` | `(string raw_response, map trusted_request)` → map | LIVE / REPO | `scripts/validate_zia_analysis_response.deluge` |
 | `check_ai_recommendation_exists` | `(string idempotency_key)` → map | **LIVE, NOT IN REPO** | — |
 | `persist_ai_recommendation` | `(map validated_analysis)` → map | **DRAFT — cannot work as written** | `scripts/persist_ai_recommendation.deluge` |
 | `execute_approved_recommendation` | `(string ai_recommendation_record_id)` → map | REPO, undeployed | `scripts/execute_approved_recommendation.deluge` |
 
-### Two gaps in this table
+### Repository/source gaps
 
 1. **`check_ai_recommendation_exists` is deployed but has no repository source.** Its
    Deluge must be exported from Zoho Flow and committed. Until then the ingestion
    duplicate guard — verified working live — exists only inside Zoho. Note it is a
    read-then-write guard, not a datastore constraint: see the idempotency note below.
-2. **`persist_ai_recommendation` is stale.** It writes ~20 fields that do not exist on
+2. **`fetch_open_tasks_for_lead` is deployed but has no repository source.** Its live
+   input/output was verified on the Lead route, but the Deluge must still be exported.
+3. **`persist_ai_recommendation` is stale.** It writes ~20 fields that do not exist on
    the live module, uses `Target_Record_Id` where the live name is `Target_Record_ID`,
    and writes to a non-existent `Idempotency_Key` API name (the live API name is
-   `Name`). The deployed persistence step therefore does **not** match this file.
-   Reconcile against `live_module_inspection_2026-07-19.md`, or export the deployed
-   version and replace this draft.
+   `Name`). It is not deployed: the live Flow persists with three route-specific Zoho
+   CRM **Create or update module entry** actions. This draft must not be treated as a
+   source export or deployment artifact.
 
 ## The idempotency key: label vs API name
 
@@ -77,7 +81,7 @@ Execution-stage safety does not depend on this field — it uses a conditional
 | 6 | `Recommendation Already Exists?` | Decision |
 | 7 | `Fetch Contact by Sender Email` | CRM action |
 | 8 | `Contact Found?` | Decision |
-| 9 | `Fetch Lead by Sender Email` | CRM action |
+| 9 | `fetch_lead_by_email` | Custom function |
 | 10 | `Lead Found?` | Decision |
 | 11 | `Fetch Account by Sender Domain` | Custom function |
 | 12 | `Account Found?` | Decision |
@@ -88,7 +92,7 @@ Execution-stage safety does not depend on this field — it uses a conditional
 | 17 | `Wait for Zia Analysis - [Match]` | Delay |
 | 18 | `Fetch Zia Analysis Result - [Match]` | Zia Agent fetch |
 | 19 | `Validate Zia Analysis - [Match]` | Custom function (per route) |
-| 20 | `Persist AI Recommendation - [Match]` | Custom function (per route) |
+| 20 | `Create or update module entry` | Zoho CRM action (per route) |
 
 `[Match]` is one of `Contact`, `Lead`, `Account` — blocks 13–20 are duplicated per
 route.
@@ -109,8 +113,11 @@ Recorded because each was a real, diagnosed failure:
 | `Fetch Zia Analysis Result` input | the trigger block's **`executionId`** | A step ID was mapped instead, so the fetch never resolved |
 | Route-specific `Query` | the matching route's variable | A copied block retained a null Query |
 | `Validate Zia Analysis` inputs | the same route's request/response | Copied blocks pointed at another route's variables |
+| `fetch_lead_by_email.email` | normalized `from_email` | Native connector discarded even a literal Email at runtime; retired and replaced by the custom function |
+| `build_ai_analysis_request.normalized_message` | entire normalized-message map | Lead copy mapped only `body_html`, causing a map/string type error |
+| Route persistence scalars | current route validator output | Contact/Lead copies retained obsolete validator variable names |
 
-Route duplication is the root cause of all three. Verify every copied block's variable
+Route duplication is the root cause of these mapping defects. Verify every copied block's variable
 names and route label.
 
 ## Zia Agent
@@ -183,9 +190,10 @@ only — see `execute_approved_recommendation_flow.md`.
 
 ## Outstanding inventory work
 
-1. Export `check_ai_recommendation_exists` from Zoho Flow and commit it.
-2. Export the deployed persistence function and replace the stale
-   `persist_ai_recommendation.deluge` draft.
+1. Export `check_ai_recommendation_exists` and `fetch_open_tasks_for_lead` from Zoho
+   Flow and commit them.
+2. Retire or rewrite the stale `persist_ai_recommendation.deluge` draft; the live
+   persistence implementation is a route-specific CRM action, not this function.
 3. Capture exact input/output schemas for each custom function; only signatures are
    recorded today.
 4. Record deployment/version notes per function once the Flow structure is frozen.

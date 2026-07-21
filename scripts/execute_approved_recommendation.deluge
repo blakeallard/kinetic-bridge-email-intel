@@ -36,14 +36,7 @@ reviewed_by_raw = record.get("Reviewed_By");
 reviewed_by = "";
 if(reviewed_by_raw != null)
 {
-	if(reviewed_by_raw.getJSONMeta() == "JSONOBJECT")
-	{
-		reviewed_by = ifnull(reviewed_by_raw.get("name"),"").toString().trim();
-	}
-	else
-	{
-		reviewed_by = reviewed_by_raw.toString().trim();
-	}
+	reviewed_by = ifnull(reviewed_by_raw.get("name"),"").toString().trim();
 }
 requires_approval_raw = ifnull(record.get("Requires_Approval"),"").toString().trim();
 created_by_ai_raw = ifnull(record.get("Created_By_AI"),"").toString().trim();

@@ -31,7 +31,7 @@ if(lead_id != "")
 	lead_record = zoho.crm.getRecordById("Leads",lead_id.toLong());
 	if(lead_record != null)
 	{
-		lead_status = lead_record.get("Status");
+		lead_status = lead_record.get("Lead_Status");
 	}
 }
 if(resolved_account_id != "")

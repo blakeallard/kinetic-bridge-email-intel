@@ -6,7 +6,7 @@
 
 Zoho Task ID: 2543412000001583003
 
-**Last updated:** 2026-07-19
+**Last updated:** 2026-07-21
 
 Canonical current-state file:
 
@@ -30,6 +30,9 @@ created for it.
 ### Verified live in Zoho
 
 - TeamInbox webhook ingestion, normalization, and processing gate.
+- Contact, Lead, and Account routes revalidated through `Pending Review` persistence
+  on 2026-07-21. Native Fetch Lead was replaced by the verified
+  `fetch_lead_by_email` custom function after the connector discarded its Email input.
 - Durable early duplicate guard (`check_ai_recommendation_exists` +
   `Recommendation Already Exists?`); `exists=true` stops, `exists=false` continues.
 - Contact → Lead → Account-domain CRM matching, plus the no-match case.
@@ -48,12 +51,24 @@ created for it.
 - `scripts/execute_approved_recommendation.deluge` — the executor custom function.
 - `scripts/execution_policy.py` — the executable specification it translates.
 - `scripts/zoho_crm_admin.py` — Zoho CRM V8 inspection + idempotent setup utility.
-- 114 automated tests, all passing offline with no dependencies — including a
+- 119 automated tests, all passing offline with no dependencies — including a
   two-caller concurrency test proving exactly one execution reaches Task creation,
   and tests pinning the terminal-failure policy.
 - `docs/execute_approved_recommendation_flow.md` — exact Flow wiring and acceptance
   tests.
 - `docs/zoho_flow_inventory.md` — source-controlled Flow/function inventory.
+
+### Repository audit — 2026-07-21
+
+- Reconciled `build_crm_snapshot.deluge` with the verified live `Lead_Status` API
+  field.
+- Corrected stale function signatures and the retired native Fetch Lead block in the
+  Flow inventory.
+- Added static regression coverage for the custom Lead lookup and Lead status field.
+- Kept `plan/flows/` local-only because its diagnostic screenshots include a
+  credential-bearing webhook URL; the directory is now ignored by Git.
+- Removed generated `.DS_Store` and Python bytecode cache files. Material flow
+  screenshots were preserved.
 
 ## Completed
 
@@ -96,10 +111,10 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
    (`check_ai_recommendation_exists`) but is a read-then-write, so concurrent delivery
    of one message can still create two recommendation records.
 3. **`scripts/persist_ai_recommendation.deluge` is stale and undeployable.** It writes
-   ~20 fields that do not exist on the live module. The deployed persistence function
-   differs and has not been exported.
-4. **`check_ai_recommendation_exists` has no repository source.** It is live in Zoho
-   Flow only.
+   ~20 fields that do not exist on the live module. It is not the live implementation:
+   persistence currently uses route-specific CRM Create/update actions.
+4. **Two live custom functions have no repository source.** They are
+   `check_ai_recommendation_exists` and `fetch_open_tasks_for_lead`.
 5. **No Zoho API credentials in the working environment.** Deployment of the executor
    cannot be performed or proven from here.
 
@@ -107,8 +122,8 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
 
 1. Add `Accounts` to the `Target_Module` picklist so metadata matches the data
    already stored (Tier 3 approval).
-2. Export `check_ai_recommendation_exists` and the deployed persistence function from
-   Zoho Flow into `scripts/`.
+2. Export `check_ai_recommendation_exists` and `fetch_open_tasks_for_lead` from Zoho
+   Flow into `scripts/`; retire or rewrite the stale persistence draft.
 3. Deploy `execute_approved_recommendation` as a Zoho Flow custom function and build
    the `Execute Approved AI Recommendation` Flow per
    `docs/execute_approved_recommendation_flow.md`.

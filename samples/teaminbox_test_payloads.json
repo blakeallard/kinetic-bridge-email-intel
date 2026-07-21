@@ -1,0 +1,41 @@
+{
+  "usage": "Copy one payload object into Zoho Flow Test & Debug. Replace both eventId and messageId with a never-before-used value for every non-duplicate run.",
+  "tests": [
+    {
+      "name": "contact_match",
+      "expected_route": "Contact Found=True; Lead and Account do not run",
+      "expected_target": {"module": "Contacts", "id": "6719186000002999004"},
+      "payload": {"from":{"fromAddress":"blake@kinetic-bridge.com","senderName":"Contact Test"},"to":{"toAddress":"sales@kinetic-bridge.com"},"cc":{"ccAddress":""},"bcc":{"bccAddress":""},"date":{"sentDateInGMT":1784660300000,"receivedTime":1784660300000},"event":{"eventId":"DOC-CONTACT-001","eventName":"NEW_INBOUND_MESSAGE"},"content":{"mailContent":"<p>Please confirm pricing and delivery for our battery order.</p>"},"messageId":"DOC-CONTACT-001","portalId":"901489292","subject":"Pricing and delivery confirmation","summary":"Existing Contact follow-up."}
+    },
+    {
+      "name": "lead_match",
+      "expected_route": "Contact Found=False; Lead Found=True",
+      "expected_target": {"module": "Leads", "id": "6719186000003163012"},
+      "payload": {"from":{"fromAddress":"bi1-t110-lead-only@example.com","senderName":"Lead Test"},"to":{"toAddress":"sales@kinetic-bridge.com"},"cc":{"ccAddress":""},"bcc":{"bccAddress":""},"date":{"sentDateInGMT":1784660360000,"receivedTime":1784660360000},"event":{"eventId":"DOC-LEAD-001","eventName":"NEW_INBOUND_MESSAGE"},"content":{"mailContent":"<p>Please confirm revised pricing and the delivery timeline.</p>"},"messageId":"DOC-LEAD-001","portalId":"901489292","subject":"Quote follow-up","summary":"Existing Lead follow-up."}
+    },
+    {
+      "name": "account_domain_match",
+      "expected_route": "Contact Found=False; Lead Found=False; Account Found=True",
+      "expected_target": {"module": "Accounts", "id": "6719186000002999003"},
+      "payload": {"from":{"fromAddress":"account-fallback-test@kinetic-bridge.com","senderName":"Account Test"},"to":{"toAddress":"sales@kinetic-bridge.com"},"cc":{"ccAddress":""},"bcc":{"bccAddress":""},"date":{"sentDateInGMT":1784660420000,"receivedTime":1784660420000},"event":{"eventId":"DOC-ACCOUNT-001","eventName":"NEW_INBOUND_MESSAGE"},"content":{"mailContent":"<p>Please confirm available pricing and expected delivery dates.</p>"},"messageId":"DOC-ACCOUNT-001","portalId":"901489292","subject":"Upcoming requirements","summary":"Unknown sender at an existing Account domain."}
+    },
+    {
+      "name": "no_match",
+      "expected_route": "Contact=False; Lead=False; Account=False; current behavior is unresolved",
+      "expected_target": {"module": "", "id": ""},
+      "payload": {"from":{"fromAddress":"no-match@bi1-t110-no-match.invalid","senderName":"No Match Test"},"to":{"toAddress":"sales@kinetic-bridge.com"},"cc":{"ccAddress":""},"bcc":{"bccAddress":""},"date":{"sentDateInGMT":1784660480000,"receivedTime":1784660480000},"event":{"eventId":"DOC-NOMATCH-001","eventName":"NEW_INBOUND_MESSAGE"},"content":{"mailContent":"<p>Please contact me about battery options.</p>"},"messageId":"DOC-NOMATCH-001","portalId":"901489292","subject":"Battery options","summary":"Sender should not match CRM."}
+    },
+    {
+      "name": "finance_mailbox_skip",
+      "expected_route": "Processing Gate=False; no CRM or Zia blocks run",
+      "expected_target": {"module": "", "id": ""},
+      "payload": {"from":{"fromAddress":"vendor@example.com","senderName":"Finance Skip Test"},"to":{"toAddress":"ap@kinetic-bridge.com"},"cc":{"ccAddress":""},"bcc":{"bccAddress":""},"date":{"sentDateInGMT":1784660540000,"receivedTime":1784660540000},"event":{"eventId":"DOC-FINANCE-001","eventName":"NEW_INBOUND_MESSAGE"},"content":{"mailContent":"<p>Invoice attached.</p>"},"messageId":"DOC-FINANCE-001","portalId":"901489292","subject":"Invoice","summary":"Finance mailbox exclusion."}
+    },
+    {
+      "name": "non_inbound_skip",
+      "expected_route": "Processing Gate=False; skip_reason=non_inbound_event",
+      "expected_target": {"module": "", "id": ""},
+      "payload": {"from":{"fromAddress":"blake@kinetic-bridge.com","senderName":"Outbound Test"},"to":{"toAddress":"sales@kinetic-bridge.com"},"cc":{"ccAddress":""},"bcc":{"bccAddress":""},"date":{"sentDateInGMT":1784660600000,"receivedTime":1784660600000},"event":{"eventId":"DOC-OUTBOUND-001","eventName":"MESSAGE_SENT"},"content":{"mailContent":"<p>This event must not be analyzed.</p>"},"messageId":"DOC-OUTBOUND-001","portalId":"901489292","subject":"Outbound event","summary":"Non-inbound exclusion."}
+    }
+  ]
+}

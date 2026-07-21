@@ -25,6 +25,13 @@ Implement the approved AI-powered customer communication intelligence architectu
 3. Read `AGENTS.md`, `CLAUDE.md`, and `CODEX.md` for agent workflow and validation rules.
 4. Read `docs/CURRENT_HANDOFF.md` for the active state of the repo before changing files.
 
+Current ingestion references:
+
+- `docs/teaminbox_flow_complete_breakdown.md`: plain-language and technical walkthrough.
+- `docs/zoho_flow_inventory.md`: deployed block order, mappings, and known gaps.
+- `samples/teaminbox_test_payloads.json`: sanitized Contact, Lead, Account, no-match,
+  duplicate-replay, and non-processing webhook tests.
+
 No task-specific runtime or dependencies are defined at bootstrap. Add setup commands here when implementation begins.
 
 ## High-Level Architecture
@@ -35,6 +42,7 @@ No task-specific runtime or dependencies are defined at bootstrap. Add setup com
 - `CLAUDE.md` / `CODEX.md`: tool-specific execution expectations
 - `docs/CURRENT_HANDOFF.md`: current state, round history, blockers, and next step
 - `docs/`: documentation and deliverables
+- `samples/`: sanitized reusable test inputs
 - `scripts/`: task-specific implementation
 - `artifacts/`: approved supporting artifacts
 - `.github/`: issue/PR templates and repository validation workflow
