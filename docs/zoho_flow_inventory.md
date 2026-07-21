@@ -34,24 +34,18 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 | `fetch_open_deals_for_contact` | `(string contact_id)` → list | LIVE / REPO | `scripts/fetch_open_deals_for_contact.deluge` |
 | `fetch_open_cases_for_contact` | `(string contact_id)` → list | LIVE / REPO | `scripts/fetch_open_cases_for_contact.deluge` |
 | `fetch_open_tasks_for_contact` | `(string contact_id)` → list | LIVE / REPO | `scripts/fetch_open_tasks_for_contact.deluge` |
-| `fetch_open_tasks_for_lead` | `(string lead_id)` → list | **LIVE, NOT IN REPO** | — |
+| `fetch_open_tasks_for_lead` | `(string lead_id)` → list | LIVE / REPO | `scripts/fetch_open_tasks_for_lead.deluge` |
 | `build_crm_context` | `(string from_email, string from_domain, string contact_id, string lead_id, string account_id)` → map | LIVE / REPO | `scripts/build_crm_context.deluge` |
 | `build_crm_snapshot` | `(string contact_id, string lead_id, string account_id, list open_deals, list open_cases, list open_tasks)` → map | LIVE / REPO | `scripts/build_crm_snapshot.deluge` |
 | `build_ai_analysis_request` | `(map message, map context, map snapshot)` → map | LIVE / REPO | `scripts/build_ai_analysis_request.deluge` |
 | `validate_zia_analysis_response` | `(string raw_response, map trusted_request)` → map | LIVE / REPO | `scripts/validate_zia_analysis_response.deluge` |
-| `check_ai_recommendation_exists` | `(string idempotency_key)` → map | **LIVE, NOT IN REPO** | — |
+| `check_ai_recommendation_exists` | `(string idempotency_key)` → map | LIVE / REPO | `scripts/check_ai_recommendation_exists.deluge` |
 | `persist_ai_recommendation` | `(map validated_analysis)` → map | **DRAFT — cannot work as written** | `scripts/persist_ai_recommendation.deluge` |
 | `execute_approved_recommendation` | `(string ai_recommendation_record_id)` → map | REPO, undeployed | `scripts/execute_approved_recommendation.deluge` |
 
 ### Repository/source gaps
 
-1. **`check_ai_recommendation_exists` is deployed but has no repository source.** Its
-   Deluge must be exported from Zoho Flow and committed. Until then the ingestion
-   duplicate guard — verified working live — exists only inside Zoho. Note it is a
-   read-then-write guard, not a datastore constraint: see the idempotency note below.
-2. **`fetch_open_tasks_for_lead` is deployed but has no repository source.** Its live
-   input/output was verified on the Lead route, but the Deluge must still be exported.
-3. **`persist_ai_recommendation` is stale.** It writes ~20 fields that do not exist on
+1. **`persist_ai_recommendation` is stale.** It writes ~20 fields that do not exist on
    the live module, uses `Target_Record_Id` where the live name is `Target_Record_ID`,
    and writes to a non-existent `Idempotency_Key` API name (the live API name is
    `Name`). It is not deployed: the live Flow persists with three route-specific Zoho
@@ -190,10 +184,8 @@ only — see `execute_approved_recommendation_flow.md`.
 
 ## Outstanding inventory work
 
-1. Export `check_ai_recommendation_exists` and `fetch_open_tasks_for_lead` from Zoho
-   Flow and commit them.
-2. Retire or rewrite the stale `persist_ai_recommendation.deluge` draft; the live
+1. Retire or rewrite the stale `persist_ai_recommendation.deluge` draft; the live
    persistence implementation is a route-specific CRM action, not this function.
-3. Capture exact input/output schemas for each custom function; only signatures are
+2. Capture exact input/output schemas for each custom function; only signatures are
    recorded today.
-4. Record deployment/version notes per function once the Flow structure is frozen.
+3. Record deployment/version notes per function once the Flow structure is frozen.

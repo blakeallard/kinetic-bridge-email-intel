@@ -1,0 +1,27 @@
+map check_ai_recommendation_exists(string idempotency_key)
+{
+result = Map();
+exists = false;
+record_id = "";
+status = "";
+criteria = "(Name:equals:" + idempotency_key + ")";
+records = zoho.crm.searchRecords("AI_Recommendations",criteria);
+if(records != null && records.size() > 0)
+{
+	existing_record = records.get(0);
+	exists = true;
+	if(existing_record.get("id") != null)
+	{
+		record_id = existing_record.get("id").toString();
+	}
+	if(existing_record.get("Status") != null)
+	{
+		status = existing_record.get("Status").toString();
+	}
+}
+result.put("exists",exists);
+result.put("record_id",record_id);
+result.put("status",status);
+result.put("idempotency_key",idempotency_key);
+return result;
+}

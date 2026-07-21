@@ -51,7 +51,7 @@ created for it.
 - `scripts/execute_approved_recommendation.deluge` — the executor custom function.
 - `scripts/execution_policy.py` — the executable specification it translates.
 - `scripts/zoho_crm_admin.py` — Zoho CRM V8 inspection + idempotent setup utility.
-- 119 automated tests, all passing offline with no dependencies — including a
+- 126 automated tests, all passing offline with no dependencies — including a
   two-caller concurrency test proving exactly one execution reaches Task creation,
   and tests pinning the terminal-failure policy.
 - `docs/execute_approved_recommendation_flow.md` — exact Flow wiring and acceptance
@@ -113,17 +113,14 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
 3. **`scripts/persist_ai_recommendation.deluge` is stale and undeployable.** It writes
    ~20 fields that do not exist on the live module. It is not the live implementation:
    persistence currently uses route-specific CRM Create/update actions.
-4. **Two live custom functions have no repository source.** They are
-   `check_ai_recommendation_exists` and `fetch_open_tasks_for_lead`.
-5. **No Zoho API credentials in the working environment.** Deployment of the executor
+4. **No Zoho API credentials in the working environment.** Deployment of the executor
    cannot be performed or proven from here.
 
 ## Next Actions
 
 1. Add `Accounts` to the `Target_Module` picklist so metadata matches the data
    already stored (Tier 3 approval).
-2. Export `check_ai_recommendation_exists` and `fetch_open_tasks_for_lead` from Zoho
-   Flow into `scripts/`; retire or rewrite the stale persistence draft.
+2. Retire or rewrite the stale persistence draft.
 3. Deploy `execute_approved_recommendation` as a Zoho Flow custom function and build
    the `Execute Approved AI Recommendation` Flow per
    `docs/execute_approved_recommendation_flow.md`.

@@ -5,6 +5,29 @@
 
 ---
 
+## Round 6 — 2026-07-21 — Complete live ingestion function export
+
+Exported the operator-supplied live Deluge for `check_ai_recommendation_exists` and
+`fetch_open_tasks_for_lead` into `scripts/`. The former searches the
+`AI_Recommendations` module by the `Name` API field and returns the early duplicate
+guard contract. The latter returns non-completed Tasks related to a matched Lead.
+
+Added seven static regression checks covering their module/field mappings, blank-ID
+guard, completed-task exclusion, and output contracts. These were source
+reconciliations only; no Zoho runtime configuration was changed.
+
+Validation performed:
+
+- `python3 -m unittest discover -s tests` — 126 tests passed.
+- `python3 -m json.tool samples/teaminbox_test_payloads.json` — passed.
+- Python compilation of implementation and test modules — passed.
+- `git diff --check` — passed.
+- tracked-file private-key/webhook-key pattern scan — no matches.
+- No local Deluge compiler is available; the supplied sources are exact exports of
+  the live functions already exercised through Zoho Flow Test & Debug.
+
+---
+
 ## Round 5 — 2026-07-21 — Repository cleanup and audit
 
 Audited the working tree after the Contact, Lead, Account, and duplicate-replay
