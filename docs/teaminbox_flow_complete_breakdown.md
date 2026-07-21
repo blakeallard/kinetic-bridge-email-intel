@@ -2,7 +2,8 @@
 
 **Task:** BI1-T110  
 **Validated:** 2026-07-21  
-**Flow:** `TeamInbox to CRM Payload Test` (kept OFF; exercised with Test & Debug)
+**Flow:** `TeamInbox to CRM Payload Test` (operator confirmed ON; controlled changes
+validated with Test & Debug)
 
 ## Plain-language overview
 
@@ -181,6 +182,11 @@ Required live mappings:
 Review/audit and execution-result fields remain blank during ingestion. Persistence
 does not create a Task or perform the recommendation.
 
+For the no-match route, the dedicated validator forces `manual_review`, clears both
+target fields, marks context insufficient with `crm_record_not_found`, and persists
+`Validation_Status=fallback`. This remains human-reviewable but cannot satisfy the
+approved-action executor policy.
+
 ### 14. Human approval and separate execution
 
 The CRM Blueprint controls `Pending Review -> Approved` and `Pending Review ->
@@ -197,19 +203,21 @@ deployed.
 | Lead | `RECOVERY-LEAD-013` | Leads `6719186000003163012` | `6719186000003247001` |
 | Contact | `REGRESSION-CONTACT-016` | Contacts `6719186000002999004` | `6719186000003249001` |
 | Account | `REGRESSION-ACCOUNT-018` | Accounts `6719186000002999003` | `6719186000003250001` |
+| No match | `REGRESSION-NOMATCH-020` | blank | `6719186000003254001` (`manual_review` / `fallback`) |
 
-Lead replay found the same recommendation and stopped at the duplicate decision.
+Lead and no-match replays found their existing recommendations and stopped at the
+duplicate decision.
 
 ## Known limitations and required production work
 
-1. The Flow remains OFF and test-only.
+1. The Flow is ON, but production behavior has not been fully characterized; at least
+   one natural TeamInbox execution occurred before the 2026-07-21 corrections.
 2. `Accounts` is still missing from the `Target_Module` picklist metadata even though
    API writes accept and store it.
 3. Ingestion duplicate checking is read-then-write, not atomically unique.
 4. The fixed Zia delay should become bounded polling with a safe timeout path.
-5. The no-match branch still needs an explicit business decision.
-6. The approved-action executor is implemented locally but not deployed or live-tested.
-7. Live custom-function source and repository source must be reconciled after every
+5. The approved-action executor is implemented locally but not deployed or live-tested.
+6. Live custom-function source and repository source must be reconciled after every
    Flow edit; the repository copy was reconciled to the live `Lead_Status` field on
    2026-07-21.
 
@@ -220,8 +228,8 @@ contract, applies an early replay guard, resolves CRM identity with deterministi
 Contact-before-Lead-before-Account precedence, builds trusted CRM context, invokes Zia
 as a read-only asynchronous analyst, validates all AI output against trusted IDs and
 safety rules, and persists a human-reviewable recommendation. Contact, Lead, Account,
-and ordinary duplicate replay paths are proven in Test & Debug. The original blocker
+no-match, and ordinary duplicate replay paths are proven in Test & Debug. The original blocker
 was isolated to Zoho Flow's native Fetch Lead action dropping its Email input at
 runtime; a direct CRM search custom function is the validated replacement. Production
-activation still depends on the documented schema, concurrency, timeout, no-match,
+production readiness still depends on the documented schema, concurrency, timeout,
 and executor-deployment work.

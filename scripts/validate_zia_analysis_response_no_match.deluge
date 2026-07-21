@@ -1,4 +1,4 @@
-map validate_zia_analysis_response(string raw_response, map trusted_request)
+map validate_zia_analysis_response_no_match(string raw_response, map trusted_request)
 {
 trusted_message = ifnull(trusted_request.get("message"),Map());
 trusted_context = ifnull(trusted_request.get("crm_context"),Map());
@@ -7,7 +7,7 @@ cleaned_response = cleaned_response.replaceAll("```json","");
 cleaned_response = cleaned_response.replaceAll("```","").trim();
 parse_ok = true;
 analysis = Map();
-try 
+try
 {
 	analysis = cleaned_response.toMap();
 }

@@ -2,7 +2,7 @@
 
 Zoho Task ID: 2543412000001583003 (BI1-T110)
 
-**Last updated:** 2026-07-19
+**Last updated:** 2026-07-21
 
 Source-controlled inventory of every Zoho Flow custom function, block label, route,
 variable mapping, and sanitized test payload currently documented by this repository.
@@ -21,7 +21,7 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 
 | Flow name | State | Purpose |
 | --- | --- | --- |
-| `TeamInbox to CRM Payload Test` | **LIVE**, switched **OFF**, exercised via Test & Debug | Ingestion: webhook → normalize → dedup → CRM match → context → Zia → validate → persist |
+| `TeamInbox to CRM Payload Test` | **LIVE and ON**; controlled validation used Test & Debug | Ingestion: webhook → normalize → dedup → CRM match → context → Zia → validate → persist |
 | `Execute Approved AI Recommendation` | **PLANNED** | Approved-action execution; see `execute_approved_recommendation_flow.md` |
 
 ## Custom functions
@@ -39,6 +39,7 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 | `build_crm_snapshot` | `(string contact_id, string lead_id, string account_id, list open_deals, list open_cases, list open_tasks)` → map | LIVE / REPO | `scripts/build_crm_snapshot.deluge` |
 | `build_ai_analysis_request` | `(map message, map context, map snapshot)` → map | LIVE / REPO | `scripts/build_ai_analysis_request.deluge` |
 | `validate_zia_analysis_response` | `(string raw_response, map trusted_request)` → map | LIVE / REPO | `scripts/validate_zia_analysis_response.deluge` |
+| `validate_zia_analysis_response_no_match` | `(string raw_response, map trusted_request)` → map | LIVE / REPO | `scripts/validate_zia_analysis_response_no_match.deluge` |
 | `check_ai_recommendation_exists` | `(string idempotency_key)` → map | LIVE / REPO | `scripts/check_ai_recommendation_exists.deluge` |
 | `persist_ai_recommendation` | `(map validated_analysis)` → map | **DRAFT — cannot work as written** | `scripts/persist_ai_recommendation.deluge` |
 | `execute_approved_recommendation` | `(string ai_recommendation_record_id)` → map | REPO, undeployed | `scripts/execute_approved_recommendation.deluge` |
@@ -88,15 +89,18 @@ Execution-stage safety does not depend on this field — it uses a conditional
 | 19 | `Validate Zia Analysis - [Match]` | Custom function (per route) |
 | 20 | `Create or update module entry` | Zoho CRM action (per route) |
 
-`[Match]` is one of `Contact`, `Lead`, `Account` — blocks 13–20 are duplicated per
-route.
+`[Match]` is one of `Contact`, `Lead`, `Account`, or `No Match` — blocks 13–20 are
+duplicated per route. The no-match route uses its dedicated validator function because
+Zoho duplicated the shared function's parameter metadata when a new action was added.
 
 ### Routing
 
 - Blocks 5–6 form the durable early duplicate guard. **Verified live:** `exists=true`
   stops processing; `exists=false` follows the Default path and continues.
 - Match precedence is Contact email → Lead email → Account sender-domain → no match.
-- The no-match branch has no defined behaviour yet (open decision).
+- No match produces `manual_review`, blank trusted target fields,
+  `Validation_Status=fallback`, and a `Pending Review` recommendation. It cannot pass
+  the approved-action executor's allow-list.
 
 ### Variable mappings that have caused defects
 
@@ -151,6 +155,7 @@ target `Accounts` / `6719186000002999003`.
 | `6719186000003181001` | `teaminbox:901489292:1784333133430111002` | Pending Review; `Target_Module` = **`Accounts`**, `Target_Record_ID` = `6719186000002999003` — proves the Account route persists |
 | `6719186000003183001` | `teaminbox:901489292:1784333133430111003` | Approved; reviewer audit fields populated; no CRM action taken |
 | `6719186000003185001` | `teaminbox:901489292:1784333133430111004` | Rejected; reviewer audit fields populated; no CRM action taken |
+| `6719186000003254001` | `teaminbox:901489292:REGRESSION-NOMATCH-020` | Pending Review; `manual_review`; fallback validation; blank target; duplicate replay stopped early |
 
 The `Target_Module` picklist defines only `-None-`, `Contacts`, `Leads`, `Deals` — so
 the persisted `Accounts` value is an out-of-list write. This is a metadata mismatch to

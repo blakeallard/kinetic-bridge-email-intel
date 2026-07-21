@@ -78,5 +78,35 @@ class TestLeadOpenTaskLookup(unittest.TestCase):
             self.assertIn(f'task_item.put("{field}"', self.source)
 
 
+class TestNoMatchValidator(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.no_match = (
+            SCRIPTS / "validate_zia_analysis_response_no_match.deluge"
+        ).read_text()
+        cls.shared = (SCRIPTS / "validate_zia_analysis_response.deluge").read_text()
+
+    def test_has_a_clean_two_argument_signature(self):
+        self.assertTrue(
+            self.no_match.startswith(
+                "map validate_zia_analysis_response_no_match("
+                "string raw_response, map trusted_request)"
+            )
+        )
+
+    def test_forces_manual_review_and_clears_untrusted_targets(self):
+        for source in (self.no_match, self.shared):
+            self.assertIn('recommendation.put("action","manual_review")', source)
+            self.assertIn('recommendation.put("target_module","")', source)
+            self.assertIn('recommendation.put("target_record_id","")', source)
+
+    def test_marks_no_match_as_insufficient_context(self):
+        self.assertIn('else if(match_status != "matched")', self.no_match)
+        self.assertIn('safety.put("contains_insufficient_context",true)', self.no_match)
+
+    def test_records_the_no_match_conflict(self):
+        self.assertIn('conflicts.add("crm_record_not_found")', self.no_match)
+
+
 if __name__ == "__main__":
     unittest.main()

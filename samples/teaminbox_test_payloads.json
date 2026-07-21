@@ -21,7 +21,7 @@
     },
     {
       "name": "no_match",
-      "expected_route": "Contact=False; Lead=False; Account=False; current behavior is unresolved",
+      "expected_route": "Contact=False; Lead=False; Account=False; persist manual_review/fallback with blank target",
       "expected_target": {"module": "", "id": ""},
       "payload": {"from":{"fromAddress":"no-match@bi1-t110-no-match.invalid","senderName":"No Match Test"},"to":{"toAddress":"sales@kinetic-bridge.com"},"cc":{"ccAddress":""},"bcc":{"bccAddress":""},"date":{"sentDateInGMT":1784660480000,"receivedTime":1784660480000},"event":{"eventId":"DOC-NOMATCH-001","eventName":"NEW_INBOUND_MESSAGE"},"content":{"mailContent":"<p>Please contact me about battery options.</p>"},"messageId":"DOC-NOMATCH-001","portalId":"901489292","subject":"Battery options","summary":"Sender should not match CRM."}
     },

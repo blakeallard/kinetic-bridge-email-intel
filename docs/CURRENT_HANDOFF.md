@@ -5,6 +5,38 @@
 
 ---
 
+## Round 7 — 2026-07-21 — No-match route and live-state correction
+
+The operator confirmed that `TeamInbox to CRM Payload Test` was ON throughout
+development, contrary to the repository's prior OFF assumption, and reported natural
+TeamInbox execution history before the day's corrections. Controlled regression work
+continued through Test & Debug.
+
+Completed the `Account Found? = False` route through a dedicated
+`validate_zia_analysis_response_no_match` function and route-specific Zia/persistence
+mappings. Zia proposed `create_crm_task`; trusted validation forced `manual_review`,
+blank targets, low confidence, insufficient context, and
+`crm_record_not_found`. The Flow persisted recommendation `6719186000003254001` with
+`Validation_Status=fallback` and `Status=Pending Review`. An identical replay found
+that record and stopped at the early duplicate decision.
+
+Zoho duplicated the shared validator's parameter metadata for newly inserted actions
+despite its two-argument Deluge signature. A separately named two-argument validator
+was deployed for the no-match route so the three working matched routes were not
+disturbed. Both live sources are now represented in `scripts/`.
+
+Validation performed:
+
+- `python3 -m unittest discover -s tests` — 130 tests passed.
+- `python3 -m json.tool samples/teaminbox_test_payloads.json` — passed.
+- Python compilation of implementation and test modules — passed.
+- `git diff --check` — passed.
+- tracked-file private-key/webhook-key pattern scan — no matches.
+- No local Deluge compiler is available; both validator sources were reconciled from
+  the live code and the no-match function was proven through Zoho Test & Debug.
+
+---
+
 ## Round 6 — 2026-07-21 — Complete live ingestion function export
 
 Exported the operator-supplied live Deluge for `check_ai_recommendation_exists` and

@@ -20,7 +20,7 @@ Current source of truth:
 
 ## Current State
 
-Estimated completion: **~70%**.
+Estimated completion: **~75%**.
 
 The ingestion path is live and validated end to end through persistence and human
 approval. The approved-action execution stage is implemented and tested in this
@@ -33,6 +33,11 @@ created for it.
 - Contact, Lead, and Account routes revalidated through `Pending Review` persistence
   on 2026-07-21. Native Fetch Lead was replaced by the verified
   `fetch_lead_by_email` custom function after the connector discarded its Email input.
+- No-match route validated through `manual_review` / `fallback` persistence; duplicate
+  replay stopped at the early guard. Record: `6719186000003254001`.
+- The operator confirmed the ingestion Flow was ON throughout development and had at
+  least one natural TeamInbox execution before the 2026-07-21 corrections. Controlled
+  validation remains Test & Debug evidence; production behavior is not fully audited.
 - Durable early duplicate guard (`check_ai_recommendation_exists` +
   `Recommendation Already Exists?`); `exists=true` stops, `exists=false` continues.
 - Contact → Lead → Account-domain CRM matching, plus the no-match case.
@@ -51,7 +56,7 @@ created for it.
 - `scripts/execute_approved_recommendation.deluge` — the executor custom function.
 - `scripts/execution_policy.py` — the executable specification it translates.
 - `scripts/zoho_crm_admin.py` — Zoho CRM V8 inspection + idempotent setup utility.
-- 126 automated tests, all passing offline with no dependencies — including a
+- 130 automated tests, all passing offline with no dependencies — including a
   two-caller concurrency test proving exactly one execution reaches Task creation,
   and tests pinning the terminal-failure policy.
 - `docs/execute_approved_recommendation_flow.md` — exact Flow wiring and acceptance
@@ -129,9 +134,8 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
    whether an API-invocable `Approved → Executed` transition exists.
 6. Settle the Task linkage conflict (acceptance test 5) and the conditional-claim
    assumption (acceptance test 9) — both are unverified and both are decision points.
-7. Decide the no-match branch behaviour.
-8. Replace the fixed Zia wait with bounded polling and a safe timeout path.
-9. Add ingestion-side idempotency enforcement.
+7. Replace the fixed Zia wait with bounded polling and a safe timeout path.
+8. Add ingestion-side idempotency enforcement.
 
 Agent rule:
 
