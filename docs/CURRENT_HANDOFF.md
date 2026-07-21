@@ -5,6 +5,27 @@
 
 ---
 
+## Round 8 — 2026-07-21 — `Target_Module` current-state correction
+
+The operator opened the live CRM `Target_Module` field editor and supplied a current
+screenshot showing all four configured picklist options: `Contacts`, `Leads`, `Deals`,
+and `Accounts`. No CRM field change was made or is required.
+
+This supersedes the repository's active claim that `Accounts` was missing. The
+2026-07-19 API inspection that omitted `Accounts` remains preserved as dated historical
+evidence, but it is stale or incomplete relative to the current CRM UI and is no
+longer a blocker or executor-deployment prerequisite.
+
+Validation performed:
+
+- `python3 -m unittest discover -s tests` — 130 tests passed.
+- `python3 -m json.tool samples/teaminbox_test_payloads.json` — passed.
+- Python compilation of implementation and test modules — passed.
+- `git diff --check` — passed.
+- Tracked-file private-key/webhook-key pattern scan — no matches.
+
+---
+
 ## Round 7 — 2026-07-21 — No-match route and live-state correction
 
 The operator confirmed that `TeamInbox to CRM Payload Test` was ON throughout
@@ -173,10 +194,14 @@ Plain-English explanation: `docs/execute_approved_recommendation_flow.md`, secti
 Record `6719186000003181001` holds `Target_Module = Accounts`,
 `Target_Record_ID = 6719186000002999003`. The Account route persists correctly.
 
-The real issue is narrower: the complete `Target_Module` picklist metadata defines
+> **Superseded by Round 8:** the 2026-07-21 CRM field-editor UI confirms `Accounts`
+> is defined. The following paragraph records the 2026-07-19 API interpretation only.
+
+The apparent issue was narrower: the 2026-07-19 `Target_Module` API metadata defined
 only `-None-`, `Contacts`, `Leads`, `Deals` — no inactive or unused entries, no global
-picklist. `Accounts` is therefore stored as an **out-of-list value**, accepted because
-the field does not restrict writes to defined options.
+picklist. At that time, `Accounts` was therefore interpreted as an **out-of-list
+value** accepted because the field did not restrict writes to defined options. Round 8
+supersedes that interpretation as a description of the current configuration.
 
 Correct characterisation: a **metadata/configuration mismatch**, not a blocked route.
 Consequences are filtering, reporting, and grouping misses, plus breakage if value
@@ -379,7 +404,8 @@ created. The only Zoho calls this round were read-only.
 
 ## Exact remaining manual Zoho steps
 
-1. Add `Accounts` to the `Target_Module` picklist (Tier 3 — Bill-only).
+1. ~~Add `Accounts` to the `Target_Module` picklist.~~ **Superseded 2026-07-21:**
+   current CRM UI confirms it is already present; no action is required.
 2. Create the `bi1_t110_crm` Zoho Flow connection with `ZohoCRM.modules.ALL`.
 3. Create the custom function from `scripts/execute_approved_recommendation.deluge`.
 4. Create the Flow `Execute Approved AI Recommendation` per the flow document — trigger

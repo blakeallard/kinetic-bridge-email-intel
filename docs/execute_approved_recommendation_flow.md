@@ -277,13 +277,13 @@ three attempts.**
 
 ## Deployment steps (manual, in order)
 
-Nothing here has been performed.
+The picklist verification in step 1 is complete. The remaining deployment steps have
+not been performed.
 
-1. **Reconcile the `Target_Module` picklist.** Add `Accounts`. The Account route
-   already persists `Accounts` successfully (record `6719186000003181001`), but the
-   value is not a defined picklist option, so filters, reports, and grouping will miss
-   it and enabling value restriction would break future writes. See finding 1 in the
-   inspection doc. *(CRM schema change — Tier 3, Bill-only.)*
+1. **Verify the `Target_Module` picklist — completed 2026-07-21.** Current CRM
+   field-editor UI shows `Contacts`, `Leads`, `Deals`, and `Accounts`. No schema change
+   is required. The older API metadata result that omitted `Accounts` is superseded as
+   current-state evidence; see the dated correction in the inspection document.
 2. **Create the `bi1_t110_crm` Zoho Flow connection.** The conditional claim uses
    `invokeurl`, which needs a named CRM connection with `ZohoCRM.modules.ALL`. Store
    it as a Flow connection — never as a literal in the function.

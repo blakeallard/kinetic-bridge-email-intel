@@ -50,6 +50,10 @@ created for it.
   action performed.
 - Read-only metadata inspection of the module, its fields, and a real approved record
   (2026-07-19) — recorded in `docs/live_module_inspection_2026-07-19.md`.
+- Current CRM field-editor UI inspection on 2026-07-21 confirmed that
+  `Target_Module` defines `Contacts`, `Leads`, `Deals`, and `Accounts`. The older
+  2026-07-19 API result that omitted `Accounts` is superseded as current-state
+  evidence; no picklist change is required.
 
 ### Implemented locally, not deployed
 
@@ -104,38 +108,30 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
 
 ## Blockers
 
-1. **`Target_Module` metadata mismatch.** The Account route **does** persist —
-   record `6719186000003181001` holds `Target_Module = Accounts`. But `Accounts` is
-   not a defined picklist option (only `-None-`, `Contacts`, `Leads`, `Deals` are), so
-   it is stored as an out-of-list value. Filters, reports, and grouping will miss it,
-   and enabling value restriction would break future writes. Reconciling requires a
-   CRM schema change (**Tier 3 — Bill-only**).
-2. **Ingestion idempotency is not datastore-enforced.** The dedup key is the field
+1. **Ingestion idempotency is not datastore-enforced.** The dedup key is the field
    labelled `Idempotency_Key`, whose API name is `Name`; it carries no unique
    constraint. Duplicate checking exists in Zoho Flow
    (`check_ai_recommendation_exists`) but is a read-then-write, so concurrent delivery
    of one message can still create two recommendation records.
-3. **`scripts/persist_ai_recommendation.deluge` is stale and undeployable.** It writes
+2. **`scripts/persist_ai_recommendation.deluge` is stale and undeployable.** It writes
    ~20 fields that do not exist on the live module. It is not the live implementation:
    persistence currently uses route-specific CRM Create/update actions.
-4. **No Zoho API credentials in the working environment.** Deployment of the executor
+3. **No Zoho API credentials in the working environment.** Deployment of the executor
    cannot be performed or proven from here.
 
 ## Next Actions
 
-1. Add `Accounts` to the `Target_Module` picklist so metadata matches the data
-   already stored (Tier 3 approval).
-2. Retire or rewrite the stale persistence draft.
-3. Deploy `execute_approved_recommendation` as a Zoho Flow custom function and build
+1. Retire or rewrite the stale persistence draft.
+2. Deploy `execute_approved_recommendation` as a Zoho Flow custom function and build
    the `Execute Approved AI Recommendation` Flow per
    `docs/execute_approved_recommendation_flow.md`.
-4. Run acceptance tests 1–10 in that document with the Flow OFF via Test & Debug.
-5. Resolve requirement 17: run `zoho_crm_admin.py inspect-blueprint` to determine
+3. Run acceptance tests 1–10 in that document with the Flow OFF via Test & Debug.
+4. Resolve requirement 17: run `zoho_crm_admin.py inspect-blueprint` to determine
    whether an API-invocable `Approved → Executed` transition exists.
-6. Settle the Task linkage conflict (acceptance test 5) and the conditional-claim
+5. Settle the Task linkage conflict (acceptance test 5) and the conditional-claim
    assumption (acceptance test 9) — both are unverified and both are decision points.
-7. Replace the fixed Zia wait with bounded polling and a safe timeout path.
-8. Add ingestion-side idempotency enforcement.
+6. Replace the fixed Zia wait with bounded polling and a safe timeout path.
+7. Add ingestion-side idempotency enforcement.
 
 Agent rule:
 

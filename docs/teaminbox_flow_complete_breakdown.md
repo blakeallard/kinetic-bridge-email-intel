@@ -212,8 +212,9 @@ duplicate decision.
 
 1. The Flow is ON, but production behavior has not been fully characterized; at least
    one natural TeamInbox execution occurred before the 2026-07-21 corrections.
-2. `Accounts` is still missing from the `Target_Module` picklist metadata even though
-   API writes accept and store it.
+2. Current CRM field-editor UI inspection on 2026-07-21 confirms `Target_Module`
+   includes `Contacts`, `Leads`, `Deals`, and `Accounts`; the older API metadata result
+   that omitted `Accounts` is superseded and requires no schema change.
 3. Ingestion duplicate checking is read-then-write, not atomically unique.
 4. The fixed Zia delay should become bounded polling with a safe timeout path.
 5. The approved-action executor is implemented locally but not deployed or live-tested.

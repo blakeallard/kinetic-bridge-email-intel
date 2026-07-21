@@ -6,6 +6,18 @@ Zoho Task ID: 2543412000001583003 (BI1-T110)
 **Purpose:** replace assumed field names with verified ones before implementing the
 approved-action executor.
 
+## Current-state correction — 2026-07-21
+
+The CRM field-editor UI now visibly lists four `Target_Module` options: `Contacts`,
+`Leads`, `Deals`, and `Accounts`. This is newer and more direct current-state evidence
+than the 2026-07-19 API response below, which omitted `Accounts`.
+
+Therefore the former `Target_Module` metadata mismatch is **resolved/superseded**:
+`Accounts` is already defined, no picklist edit is required, and this is not an active
+blocker. The dated API response remains below as historical evidence because it was
+the result actually returned on 2026-07-19; it should not be used to describe the
+field's current configuration.
+
 ## How these reads were authenticated
 
 Two different credential paths exist in this project, and earlier drafts of this
@@ -108,7 +120,7 @@ in an unclaimed execution state.
 
 These are corrections, not opinions — each is backed by the API responses above.
 
-### 1. `Target_Module` is a metadata/configuration mismatch — the Account route DOES persist
+### 1. `Target_Module` API discrepancy — superseded on 2026-07-21
 
 An earlier draft of this document claimed the Account route "cannot persist". **That
 claim was wrong and is retracted.** Direct record read proves otherwise:
@@ -121,8 +133,8 @@ claim was wrong and is retracted.** Direct record read proves otherwise:
 | `Validation_Status` | `valid` |
 | `Recommendation_Type` | `create_crm_task` |
 
-The Account route persisted `Accounts` successfully. The mismatch is between the
-**stored data** and the **field metadata**:
+The Account route persisted `Accounts` successfully. On 2026-07-19, the API response
+appeared inconsistent with the stored data:
 
 The complete `Target_Module` picklist metadata — every entry, including `type` —
 contains no `Accounts` option:
@@ -134,25 +146,12 @@ contains no `Accounts` option:
 | `Leads` | `Leads` | `6719186000003163657` | `used` |
 | `Deals` | `Deals` | `6719186000003163658` | `used` |
 
-There are no inactive or unused entries; `global_picklist` is `null` and
-`pick_list_values_sorted_lexically` is `false`. So `Accounts` is stored as an
-**out-of-list picklist value** — Zoho accepted the API write because the field does
-not restrict values to the defined option set.
-
-**Correct characterisation: a metadata/configuration mismatch, not a blocked route.**
-
-Consequences of leaving it unreconciled:
-
-- List-view filters, reports, and Kanban grouping on `Target_Module` will not offer
-  or match `Accounts`.
-- If an administrator ever enables "restrict to defined values" on this field, every
-  future Account-route write breaks, and existing records may fail validation on edit.
-- The UI may render the value as blank or invalid on the record detail page.
-
-Remedy: add `Accounts` to the `Target_Module` picklist so metadata matches the data
-already stored. `Deals` is a defined option that ingestion never produces — the
-validator clamps the target to the matched CRM module — and the executor blocks it
-regardless. Removing `Deals` is optional tidying.
+That result originally led to an out-of-list-value diagnosis. The 2026-07-21 current
+CRM field-editor UI disproves that diagnosis as a description of the present state:
+`Accounts` is defined. No remedy or schema change is required. `Deals` remains a
+defined option that ingestion never produces — the validator clamps the target to the
+matched CRM module — and the executor blocks it regardless. Removing `Deals` is
+optional tidying.
 
 The executor's supported values remain `Contacts`, `Leads`, `Accounts`; `Deals` stays
 blocked.

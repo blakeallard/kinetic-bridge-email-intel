@@ -157,9 +157,10 @@ target `Accounts` / `6719186000002999003`.
 | `6719186000003185001` | `teaminbox:901489292:1784333133430111004` | Rejected; reviewer audit fields populated; no CRM action taken |
 | `6719186000003254001` | `teaminbox:901489292:REGRESSION-NOMATCH-020` | Pending Review; `manual_review`; fallback validation; blank target; duplicate replay stopped early |
 
-The `Target_Module` picklist defines only `-None-`, `Contacts`, `Leads`, `Deals` — so
-the persisted `Accounts` value is an out-of-list write. This is a metadata mismatch to
-reconcile, not a blocked route. See finding 1 in `live_module_inspection_2026-07-19.md`.
+Current CRM field-editor UI inspection on 2026-07-21 confirms the `Target_Module`
+picklist defines `Contacts`, `Leads`, `Deals`, and `Accounts`. The 2026-07-19 API
+metadata result that omitted `Accounts` is retained as historical evidence but is
+superseded as current-state evidence. No picklist change is required.
 
 ## CRM Blueprint
 
