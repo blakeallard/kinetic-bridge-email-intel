@@ -78,6 +78,28 @@ class TestLeadOpenTaskLookup(unittest.TestCase):
             self.assertIn(f'task_item.put("{field}"', self.source)
 
 
+class TestNormalizeMessageDirection(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (SCRIPTS / "normalize_teaminbox_payload.deluge").read_text()
+
+    def test_recognizes_both_internal_company_domains(self):
+        self.assertIn('from_domain == "bevco-tech.com"', self.source)
+        self.assertIn('from_domain == "kinetic-bridge.com"', self.source)
+
+    def test_internal_sender_cannot_pass_the_processing_gate(self):
+        self.assertIn(
+            "should_process = is_inbound && !is_finance_inbox && !is_internal_sender",
+            self.source,
+        )
+
+    def test_internal_outgoing_copy_has_an_explicit_skip_reason(self):
+        self.assertIn('skip_reason = "internal_sender_outbound_copy"', self.source)
+        self.assertIn(
+            'normalized.put("is_internal_sender",is_internal_sender)', self.source
+        )
+
+
 class TestNoMatchValidator(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

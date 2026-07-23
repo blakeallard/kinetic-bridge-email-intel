@@ -6,7 +6,7 @@
 
 Zoho Task ID: 2543412000001583003
 
-**Last updated:** 2026-07-21
+**Last updated:** 2026-07-22
 
 Canonical current-state file:
 
@@ -20,12 +20,29 @@ Current source of truth:
 
 ## Current State
 
-Estimated completion: **~75%**.
+Estimated completion against the full handwritten Steps 1–7: **~95%**.
+The natural-email-to-approved-CRM-Task milestone is **complete and live-validated**, on
+both flow implementations.
 
-The ingestion path is live and validated end to end through persistence and human
-approval. The approved-action execution stage is implemented and tested in this
-repository but **not deployed** — no Zoho Flow, custom function, or CRM Task has been
-created for it.
+The ingestion path is live and validated end to end through persistence, human
+approval, and execution to a CRM Task. The approved-action execution Flow and custom
+function are deployed and ON. Contact, Lead, and Account recommendations have created
+correctly linked CRM Tasks, duplicate replays created no second Tasks, and natural
+email passed the complete email-to-recommendation-to-approval-to-Task path.
+
+Two significant pieces landed on 2026-07-22:
+
+- **Completion-polling + safe-timeout on all four routes.** Every route of the live
+  4-branch flow now runs `is_zia_analysis_complete` → bounded retry → explicit
+  `build_zia_timeout_fallback`, so no route validates an incomplete Zia response. Every
+  block mapping is recorded in `docs/zoho_flow_variable_map.md`; the pattern is in
+  `docs/zia_completion_polling_pattern.md`.
+- **Single-path flow built and validated end-to-end.** A consolidated one-path
+  equivalent (~26 blocks vs ~80) was built and proven via Postman webhooks across all
+  four match routes, the three gate skips, dedup, association, valid + fallback persist,
+  and then through approval + executor to a real CRM Task. It is a proven drop-in
+  candidate, not yet swapped in. Spec + code: `docs/single_path_refactor_spec.md`,
+  `scripts/single_path/`.
 
 ### Verified live in Zoho
 
@@ -38,6 +55,47 @@ created for it.
 - The operator confirmed the ingestion Flow was ON throughout development and had at
   least one natural TeamInbox execution before the 2026-07-21 corrections. Controlled
   validation remains Test & Debug evidence; production behavior is not fully audited.
+- A natural outgoing-copy event from an internal legacy-domain sender reached
+  TeamInbox as `NEW_INBOUND_MESSAGE`, followed the no-match route, and safely persisted
+  fallback recommendation `6719186000003262001`. This proves the natural no-match
+  path, while exposing that the processing gate does not distinguish internal
+  outgoing copies from external inbound customer messages.
+- Internal-sender gate verified in Test & Debug: a `bevco-tech.com` outgoing-copy
+  payload returned `is_internal_sender=true`, `should_process=false`,
+  `skip_reason=internal_sender_outbound_copy`, and stopped at the Processing Gate.
+- Natural BMS test `NATURAL-CONTACT-021` reached TeamInbox, triggered the live Flow,
+  and resolved Contact `6719186000002999004`. Persistence failed because the shared
+  validator returned no-match fallback data despite receiving a correctly matched
+  trusted request; live validator source/metadata inspection is now required.
+- Natural external Contact test `NATURAL-CONTACT-024` passed end to end after replacing
+  duplicated Zoho action metadata with a clean Contact-only validator. Contact
+  `6719186000003265001` matched and recommendation `6719186000003249008` persisted as
+  valid `create_crm_task` / `Pending Review` / `Not Started` with no conflicts.
+- CRM UI inspection of Contact `6719186000003265001` showed no records in its Emails
+  related list after `NATURAL-CONTACT-024`. Sender matching and recommendation
+  persistence do not currently associate the TeamInbox email to the CRM record.
+- An older Contact test displayed a received external TeamInbox email in the CRM
+  Emails related list. Email association is supported in this org, but current evidence
+  does not show that the live Flow performed that older association automatically.
+- Automated Contact email association passed in Test & Debug: message
+  `ASSOC-CONTACT-025` was associated to Contact `6719186000003265001` through the CRM
+  API with `SUCCESS` / `Your mail has been added successfully`; CRM UI then confirmed
+  the received external email in the Contact's Emails related list.
+- Automated Lead email association passed in Test & Debug: message `ASSOC-LEAD-026`
+  returned `SUCCESS` / `associated` for Lead `6719186000003163012`; CRM UI confirmed
+  the received external email in the Lead's Emails related list.
+- Automated Account-domain email association passed in Test & Debug: sender domain
+  `bi1-t110-account.invalid` resolved Account `6719186000003265003`, and message
+  `ASSOC-ACCOUNT-027` returned `SUCCESS` / `associated`; CRM UI confirmed the received
+  external email in the Account's Emails related list.
+- Natural Contact message `1784682407563110400` matched, completed AI analysis, and
+  persisted valid recommendation `6719186000003272001`, but email association failed
+  because TeamInbox's natural `sentDateInGMT` normalized seven hours into the future.
+  The association function was corrected to prefer `received_at_ms`.
+- Natural retest `BI1-T110 NATURAL-ASSOC-CONTACT-029` then returned `SUCCESS` /
+  `associated` for Contact `6719186000003265001` with CRM timestamp
+  `2026-07-21T18:16:17-07:00`; CRM UI confirmed it as a received external email in
+  the Contact's Emails related list.
 - Durable early duplicate guard (`check_ai_recommendation_exists` +
   `Recommendation Already Exists?`); `exists=true` stops, `exists=false` continues.
 - Contact → Lead → Account-domain CRM matching, plus the no-match case.
@@ -54,13 +112,40 @@ created for it.
   `Target_Module` defines `Contacts`, `Leads`, `Deals`, and `Accounts`. The older
   2026-07-19 API result that omitted `Accounts` is superseded as current-state
   evidence; no picklist change is required.
+- Approved Contact recommendation `6719186000003249008` executed to CRM Task
+  `6719186000003239002` on Contact `6719186000003265001`. CRM UI confirmed exactly
+  one open Task. Replaying the same recommendation returned `duplicate` /
+  `already_claimed` with the existing Task ID and created no second Task.
+- Approved Lead recommendation `6719186000003247001` executed to CRM Task
+  `6719186000003287001`. CRM UI confirmed `Related To = BI1-T110 Lead Test - Leads`;
+  replay returned `duplicate` / `already_claimed` and created no second Task.
+- Approved Account recommendation `6719186000003250001` executed to CRM Task
+  `6719186000003293001`. CRM UI confirmed `Related To = TEST CO - Accounts`; replay
+  returned `duplicate` / `already_claimed` and created no second Task.
+- No-match/fallback recommendation `6719186000003254001` exposed only the Blueprint
+  `Reject Recommendation` transition. It was rejected with reviewer audit fields;
+  `Execution_Status` stayed `Not Started`, execution identifiers remained blank, and
+  no Task was created.
+- Final natural acceptance message `BI1-T110 FINAL-E2E-CONTACT-031` entered TeamInbox,
+  matched Contact `6719186000003265001`, persisted approved recommendation
+  `6719186000003302001`, and executed once to Task `6719186000003237002`. The
+  recommendation recorded `Execution_Status=Executed`, `Execution_Attempts=1`, no
+  execution error, and the CRM Contact showed both the received email and exactly one
+  corresponding new open Task. A Test & Debug replay returned `duplicate` /
+  `already_claimed` with that same Task ID.
+- The execution Flow trigger is now filtered by `Status=Approved AND
+  Execution_Status=Not Started`, preventing the executor's own bookkeeping updates
+  from qualifying as new executions.
 
-### Implemented locally, not deployed
+### Implemented locally
 
+- `scripts/associate_email_to_crm_record.deluge` — reusable matched-record email
+  association through the CRM V8 Associate Email API; compiled and passed on Contact,
+  Lead, and Account branches.
 - `scripts/execute_approved_recommendation.deluge` — the executor custom function.
 - `scripts/execution_policy.py` — the executable specification it translates.
 - `scripts/zoho_crm_admin.py` — Zoho CRM V8 inspection + idempotent setup utility.
-- 130 automated tests, all passing offline with no dependencies — including a
+- 144 automated tests, all passing offline with no dependencies — including a
   two-caller concurrency test proving exactly one execution reaches Task creation,
   and tests pinning the terminal-failure policy.
 - `docs/execute_approved_recommendation_flow.md` — exact Flow wiring and acceptance
@@ -84,7 +169,8 @@ created for it.
 - Lifecycle scaffold generated from Zoho task metadata.
 - Steps 1–6: ingestion, matching, context, Zia analysis, validation.
 - Step 7 persistence and the human approval/rejection gate.
-- Step 7 execution stage: implemented, tested, documented — deployment pending.
+- Step 7 execution stage: deployed; Contact, Lead, and Account execution linkage plus
+  duplicate replay verified.
 
 ### Failure policy
 
@@ -112,26 +198,23 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
    labelled `Idempotency_Key`, whose API name is `Name`; it carries no unique
    constraint. Duplicate checking exists in Zoho Flow
    (`check_ai_recommendation_exists`) but is a read-then-write, so concurrent delivery
-   of one message can still create two recommendation records.
-2. **`scripts/persist_ai_recommendation.deluge` is stale and undeployable.** It writes
-   ~20 fields that do not exist on the live module. It is not the live implementation:
-   persistence currently uses route-specific CRM Create/update actions.
-3. **No Zoho API credentials in the working environment.** Deployment of the executor
-   cannot be performed or proven from here.
+   of one message can still create two recommendation records. Applies to both the
+   live 4-branch flow and the single-path flow.
+2. **No Zoho API credentials in the local working environment.** Live changes require
+   operator deployment through Zoho Flow; all flow work is verified through
+   operator-supplied Test & Debug and Postman-webhook evidence.
 
 ## Next Actions
 
-1. Retire or rewrite the stale persistence draft.
-2. Deploy `execute_approved_recommendation` as a Zoho Flow custom function and build
-   the `Execute Approved AI Recommendation` Flow per
-   `docs/execute_approved_recommendation_flow.md`.
-3. Run acceptance tests 1–10 in that document with the Flow OFF via Test & Debug.
+1. Add ingestion-side idempotency enforcement (only remaining functional gap; see
+   Blocker 1).
+2. Run the conditional-claim concurrency acceptance test (two concurrent approvals of
+   one record) to close the execution-stage concurrency case.
+3. Decide whether to adopt the single-path flow as the live ingestion flow. It is a
+   proven drop-in (see `docs/single_path_refactor_spec.md`); switching means turning
+   the 4-branch flow OFF and the single-path flow ON.
 4. Resolve requirement 17: run `zoho_crm_admin.py inspect-blueprint` to determine
    whether an API-invocable `Approved → Executed` transition exists.
-5. Settle the Task linkage conflict (acceptance test 5) and the conditional-claim
-   assumption (acceptance test 9) — both are unverified and both are decision points.
-6. Replace the fixed Zia wait with bounded polling and a safe timeout path.
-7. Add ingestion-side idempotency enforcement.
 
 Agent rule:
 

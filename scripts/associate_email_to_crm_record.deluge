@@ -1,0 +1,182 @@
+map associate_email_to_crm_record(map normalized_message, map crm_context)
+{
+result = Map();
+result.put("success",false);
+result.put("status","skipped");
+result.put("reason","");
+matched_status = ifnull(crm_context.get("match_status"),"").toString().trim();
+matched_module = ifnull(crm_context.get("matched_module"),"").toString().trim();
+matched_record_id = ifnull(crm_context.get("matched_record_id"),"").toString().trim();
+allowed_modules = List();
+allowed_modules.add("Contacts");
+allowed_modules.add("Leads");
+allowed_modules.add("Accounts");
+if(matched_status != "matched" || matched_module == "" || matched_record_id == "")
+{
+	result.put("reason","crm_record_not_matched");
+	return result;
+}
+if(!allowed_modules.contains(matched_module))
+{
+	result.put("reason","unsupported_crm_module");
+	return result;
+}
+from_email = ifnull(normalized_message.get("from_email"),"").toString().trim().toLowerCase();
+from_name = ifnull(normalized_message.get("from_name"),"").toString().trim();
+to_email = ifnull(normalized_message.get("to_email"),"").toString().trim().toLowerCase();
+subject = ifnull(normalized_message.get("subject"),"").toString().trim();
+content = ifnull(normalized_message.get("body_html"),"").toString();
+message_id = ifnull(normalized_message.get("message_id"),"").toString().trim();
+if(from_email == "" || to_email == "" || message_id == "")
+{
+	result.put("reason","required_email_data_missing");
+	return result;
+}
+if(subject == "")
+{
+	subject = "(no subject)";
+}
+if(content == "")
+{
+	content = ifnull(normalized_message.get("summary"),"").toString();
+}
+// TeamInbox sentDateInGMT can be offset into the future for natural received mail.
+// The CRM association is marked sent=false, so prefer the actual receipt timestamp.
+timestamp_ms = ifnull(normalized_message.get("received_at_ms"),"").toString().trim();
+if(timestamp_ms == "")
+{
+	timestamp_ms = ifnull(normalized_message.get("sent_at_ms"),"").toString().trim();
+}
+date_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX","America/Los_Angeles");
+if(timestamp_ms != "")
+{
+	try
+	{
+		date_time = timestamp_ms.toLong().toString("yyyy-MM-dd'T'HH:mm:ssXXX","America/Los_Angeles");
+	}
+	catch (date_error)
+	{
+		date_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX","America/Los_Angeles");
+	}
+}
+from_item = Map();
+from_item.put("user_name",from_name);
+from_item.put("email",from_email);
+to_item = Map();
+to_item.put("user_name",to_email);
+to_item.put("email",to_email);
+to_list = List();
+to_list.add(to_item);
+email_item = Map();
+email_item.put("from",from_item);
+email_item.put("to",to_list);
+email_item.put("subject",subject);
+email_item.put("content",content);
+email_item.put("mail_format","html");
+email_item.put("date_time",date_time);
+email_item.put("sent",false);
+email_item.put("original_message_id",message_id);
+ccValue = ifnull(normalized_message.get("cc_email"),"").toString().trim();
+if(ccValue != "")
+{
+	cc_list = List();
+	ccValue = ccValue.replaceAll(";",",");
+	ccAddresses = ccValue.toList(",");
+	for each  ccAddress in ccAddresses
+	{
+		cleanCcAddress = ccAddress.trim().toLowerCase();
+		if(cleanCcAddress != "")
+		{
+			cc_item = Map();
+			cc_item.put("user_name",cleanCcAddress);
+			cc_item.put("email",cleanCcAddress);
+			cc_list.add(cc_item);
+		}
+	}
+	if(cc_list.size() > 0)
+	{
+		email_item.put("cc",cc_list);
+	}
+}
+bccValue = ifnull(normalized_message.get("bcc_email"),"").toString().trim();
+if(bccValue != "")
+{
+	bcc_list = List();
+	bccValue = bccValue.replaceAll(";",",");
+	bccAddresses = bccValue.toList(",");
+	for each  bccAddress in bccAddresses
+	{
+		cleanBccAddress = bccAddress.trim().toLowerCase();
+		if(cleanBccAddress != "")
+		{
+			bcc_item = Map();
+			bcc_item.put("user_name",cleanBccAddress);
+			bcc_item.put("email",cleanBccAddress);
+			bcc_list.add(bcc_item);
+		}
+	}
+	if(bcc_list.size() > 0)
+	{
+		email_item.put("bcc",bcc_list);
+	}
+}
+emails = List();
+emails.add(email_item);
+request_body = Map();
+request_body.put("Emails",emails);
+try
+{
+	api_response = invokeurl
+	[
+		url :"https://www.zohoapis.com/crm/v8/" + matched_module + "/" + matched_record_id + "/actions/associate_email"
+		type :POST
+		parameters:request_body.toString()
+		connection:"zoho_crm_to_zoho_flow"
+	];
+	response_code = "";
+	response_status = "";
+	response_message = "";
+	response_items = api_response.get("Emails");
+	if(response_items != null && response_items.size() > 0)
+	{
+		response_item = response_items.get(0);
+		response_code = ifnull(response_item.get("code"),"").toString();
+		response_status = ifnull(response_item.get("status"),"").toString();
+		response_message = ifnull(response_item.get("message"),"").toString();
+	}
+	else
+	{
+		response_code = ifnull(api_response.get("code"),"").toString();
+		response_status = ifnull(api_response.get("status"),"").toString();
+		response_message = ifnull(api_response.get("message"),"").toString();
+	}
+	if(response_code == "SUCCESS" || response_status == "success")
+	{
+		result.put("success",true);
+		result.put("status","associated");
+	}
+	else if(response_code == "DUPLICATE_DATA")
+	{
+		result.put("success",true);
+		result.put("status","already_associated");
+	}
+	else
+	{
+		result.put("status","failed");
+		result.put("reason",response_code);
+	}
+	result.put("api_code",response_code);
+	result.put("api_message",response_message);
+}
+catch (api_error)
+{
+	result.put("status","failed");
+	result.put("reason","associate_email_api_error");
+	result.put("error",api_error.toString());
+}
+result.put("matched_module",matched_module);
+result.put("matched_record_id",matched_record_id);
+result.put("message_id",message_id);
+result.put("date_time",date_time);
+return result;
+}

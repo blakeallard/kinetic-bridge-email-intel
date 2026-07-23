@@ -1,0 +1,105 @@
+map resolve_crm_match(string from_email, string from_domain)
+{
+result = Map();
+safe_email = ifnull(from_email,"").trim().toLowerCase();
+safe_domain = ifnull(from_domain,"").trim().toLowerCase();
+match_status = "no_match";
+match_type = "none";
+matched_module = "";
+matched_record_id = "";
+contact_id = "";
+lead_id = "";
+account_id = "";
+if(safe_email != "")
+{
+	contacts = zoho.crm.searchRecords("Contacts","(Email:equals:" + safe_email + ")",1,10,Map(),"zoho_crm_to_zoho_flow");
+	if(contacts != null && contacts.size() > 0)
+	{
+		for each  contact in contacts
+		{
+			record_email = ifnull(contact.get("Email"),"").trim().toLowerCase();
+			if(contact_id == "" && record_email == safe_email)
+			{
+				contact_id = ifnull(contact.get("id"),"").toString();
+			}
+		}
+	}
+}
+if(contact_id != "")
+{
+	match_status = "matched";
+	match_type = "contact";
+	matched_module = "Contacts";
+	matched_record_id = contact_id;
+}
+if(match_status == "no_match" && safe_email != "")
+{
+	search_options = Map();
+	search_options.put("converted","both");
+	search_options.put("approved","both");
+	leads = zoho.crm.searchRecords("Leads","(Email:equals:" + safe_email + ")",1,10,search_options,"zoho_crm_to_zoho_flow");
+	if(leads != null && leads.size() > 0)
+	{
+		for each  lead in leads
+		{
+			record_email = ifnull(lead.get("Email"),"").trim().toLowerCase();
+			if(lead_id == "" && record_email == safe_email)
+			{
+				lead_id = ifnull(lead.get("id"),"").toString();
+			}
+		}
+	}
+	if(lead_id != "")
+	{
+		match_status = "matched";
+		match_type = "lead";
+		matched_module = "Leads";
+		matched_record_id = lead_id;
+	}
+}
+if(match_status == "no_match" && safe_domain != "")
+{
+	params = Map();
+	params.put("criteria","(Email_Domain:equals:" + safe_domain + ")");
+	params.put("fields","id,Account_Name,Email_Domain");
+	params.put("page","1");
+	params.put("per_page","10");
+	response = invokeurl
+	[
+		url :"https://www.zohoapis.com/crm/v8/Accounts/search"
+		type :GET
+		parameters:params
+		connection:"zoho_crm_to_zoho_flow"
+	];
+	if(response != null)
+	{
+		records = response.get("data");
+		if(records != null)
+		{
+			for each  record in records
+			{
+				record_domain = ifnull(record.get("Email_Domain"),"").trim().toLowerCase();
+				if(account_id == "" && record_domain == safe_domain)
+				{
+					account_id = ifnull(record.get("id"),"").toString();
+				}
+			}
+		}
+	}
+	if(account_id != "")
+	{
+		match_status = "matched";
+		match_type = "account";
+		matched_module = "Accounts";
+		matched_record_id = account_id;
+	}
+}
+result.put("match_status",match_status);
+result.put("match_type",match_type);
+result.put("matched_module",matched_module);
+result.put("matched_record_id",matched_record_id);
+result.put("contact_id",contact_id);
+result.put("lead_id",lead_id);
+result.put("account_id",account_id);
+return result;
+}

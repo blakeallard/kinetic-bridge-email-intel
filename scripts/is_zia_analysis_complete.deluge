@@ -1,0 +1,32 @@
+map is_zia_analysis_complete(string status_value, string response_value)
+{
+safe_status = ifnull(status_value,"").trim();
+safe_response = ifnull(response_value,"").trim();
+normalized_status = safe_status.toUpperCase();
+done_states = {"COMPLETED","COMPLETE","SUCCESS","SUCCEEDED","DONE","FINISHED"};
+failed_states = {"FAILED","FAILURE","ERROR","CANCELLED","CANCELED","TIMEOUT","TIMED_OUT"};
+has_payload = safe_response != "";
+status_says_failed = failed_states.contains(normalized_status);
+status_says_done = done_states.contains(normalized_status);
+status_unknown = normalized_status == "";
+complete = false;
+if(status_says_failed)
+{
+	complete = false;
+}
+else if(status_says_done && has_payload)
+{
+	complete = true;
+}
+else if(status_unknown && has_payload)
+{
+	complete = true;
+}
+result = Map();
+result.put("complete",complete);
+result.put("failed",status_says_failed);
+result.put("has_payload",has_payload);
+result.put("status",safe_status);
+result.put("response",safe_response);
+return result;
+}

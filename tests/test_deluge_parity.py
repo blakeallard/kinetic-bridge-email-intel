@@ -121,6 +121,9 @@ class TestAtomicClaim(unittest.TestCase):
     def test_claim_sends_the_if_unmodified_since_precondition(self):
         self.assertIn('claim_headers.put("If-Unmodified-Since",modified_time)', CODE)
 
+    def test_claim_declares_json_content_type(self):
+        self.assertIn('claim_headers.put("Content-Type","application/json")', CODE)
+
     def test_claim_reads_modified_time_from_the_refetched_record(self):
         self.assertIn('modified_time = ifnull(record.get("Modified_Time")', CODE)
 
@@ -157,6 +160,8 @@ class TestAtomicClaim(unittest.TestCase):
     def test_an_unexpected_claim_error_fails_and_reports_the_parsed_code(self):
         self.assertIn('result.put("reason","claim_failed")', CODE)
         self.assertIn('result.put("claim_code",claim_code)', CODE)
+        self.assertIn('result.put("claim_message",claim_message)', CODE)
+        self.assertIn('result.put("claim_details",claim_details)', CODE)
 
     def test_lost_race_is_handled_before_any_task_creation(self):
         self.assertLess(

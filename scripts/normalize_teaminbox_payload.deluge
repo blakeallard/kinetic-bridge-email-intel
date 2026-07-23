@@ -72,7 +72,8 @@ to_email = ifnull(to_data.get("toAddress"),"").trim().toLowerCase();
 event_name = ifnull(event_data.get("eventName"),"").trim();
 is_inbound = event_name == "NEW_INBOUND_MESSAGE";
 is_finance_inbox = to_email.startsWith("ap@") || to_email.startsWith("ar@");
-should_process = is_inbound && !is_finance_inbox;
+is_internal_sender = from_domain == "bevco-tech.com" || from_domain == "kinetic-bridge.com";
+should_process = is_inbound && !is_finance_inbox && !is_internal_sender;
 skip_reason = "";
 if(!is_inbound)
 {
@@ -81,6 +82,10 @@ if(!is_inbound)
 else if(is_finance_inbox)
 {
 	skip_reason = "finance_inbox";
+}
+else if(is_internal_sender)
+{
+	skip_reason = "internal_sender_outbound_copy";
 }
 normalized.put("schema_version","1.0");
 normalized.put("source","zoho_teaminbox");
@@ -102,5 +107,6 @@ normalized.put("received_at_ms",received_at_ms);
 normalized.put("should_process",should_process);
 normalized.put("skip_reason",skip_reason);
 normalized.put("from_domain",from_domain);
+normalized.put("is_internal_sender",is_internal_sender);
 return normalized;
 }

@@ -1,5 +1,6 @@
 {
-  "usage": "Copy one payload object into Zoho Flow Test & Debug. Replace both eventId and messageId with a never-before-used value for every non-duplicate run.",
+  "usage": "Copy one payload object into Zoho Flow Test & Debug or POST it to the webhook. Replace both eventId and messageId with a never-before-used value for every non-duplicate run.",
+  "caveats": "The internal-sender gate skips any from_domain of bevco-tech.com or kinetic-bridge.com (should_process=false). The 'contact_match' fixture below uses blake@kinetic-bridge.com, so it is gate-skipped end-to-end; prove Contact matching by Executing resolve_crm_match / the CRM contact lookup directly. lead_match and account_domain_match use external domains and pass the gate. See docs/single_path_refactor_spec.md.",
   "tests": [
     {
       "name": "contact_match",

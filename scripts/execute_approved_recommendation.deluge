@@ -136,7 +136,7 @@ claim_fields = Map();
 claim_fields.put("id",record_id);
 claim_fields.put("Execution_Key",execution_key);
 claim_fields.put("Execution_Status","In Progress");
-claim_fields.put("Execution_Started_At",zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssZ"));
+claim_fields.put("Execution_Started_At",zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
 claim_fields.put("Execution_Attempts",new_attempts);
 claim_rows = List();
 claim_rows.add(claim_fields);
@@ -144,26 +144,37 @@ claim_body = Map();
 claim_body.put("data",claim_rows);
 claim_headers = Map();
 claim_headers.put("If-Unmodified-Since",modified_time);
+claim_headers.put("Content-Type","application/json");
 claim_response = invokeurl
 [
 	url : "https://www.zohoapis.com/crm/v8/" + module_api_name
 	type : PUT
 	parameters : claim_body.toString()
 	headers : claim_headers
-	connection : "bi1_t110_crm"
+	connection : "zoho_crm_to_zoho_flow"
 ];
 claim_status = "";
 claim_code = "";
+claim_message = "";
+claim_details = Map();
 if(claim_response != null)
 {
 	claim_status = ifnull(claim_response.get("status"),"").toString().trim();
 	claim_code = ifnull(claim_response.get("code"),"").toString().trim();
-	claim_rows_out = ifnull(claim_response.get("data"),List());
-	if(claim_rows_out.size() > 0)
+	claim_message = ifnull(claim_response.get("message"),"").toString().trim();
+	top_details = claim_response.get("details");
+	if(top_details != null)
+	{
+		claim_details = top_details;
+	}
+	claim_rows_out = claim_response.get("data");
+	if(claim_rows_out != null && claim_rows_out.size() > 0)
 	{
 		claim_row = claim_rows_out.get(0);
 		row_status = ifnull(claim_row.get("status"),"").toString().trim();
 		row_code = ifnull(claim_row.get("code"),"").toString().trim();
+		row_message = ifnull(claim_row.get("message"),"").toString().trim();
+		row_details = claim_row.get("details");
 		if(row_status != "")
 		{
 			claim_status = row_status;
@@ -171,6 +182,14 @@ if(claim_response != null)
 		if(row_code != "")
 		{
 			claim_code = row_code;
+		}
+		if(row_message != "")
+		{
+			claim_message = row_message;
+		}
+		if(row_details != null)
+		{
+			claim_details = row_details;
 		}
 	}
 }
@@ -198,6 +217,8 @@ if(claim_status != "success")
 	result.put("reason","claim_failed");
 	result.put("record_id",record_id);
 	result.put("claim_code",claim_code);
+	result.put("claim_message",claim_message);
+	result.put("claim_details",claim_details);
 	return result;
 }
 if(review_notes.length() > 1000)
@@ -286,7 +307,7 @@ if(new_task_id == "")
 }
 success_update = Map();
 success_update.put("Executed_Task_ID",new_task_id);
-success_update.put("Executed_At",zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssZ"));
+success_update.put("Executed_At",zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
 success_update.put("Execution_Status","Executed");
 success_update.put("Execution_Error","");
 success_response = zoho.crm.updateRecord(module_api_name,record_id,success_update);

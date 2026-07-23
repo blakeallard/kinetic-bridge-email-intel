@@ -21,8 +21,9 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 
 | Flow name | State | Purpose |
 | --- | --- | --- |
-| `TeamInbox to CRM Payload Test` | **LIVE and ON**; controlled validation used Test & Debug | Ingestion: webhook → normalize → dedup → CRM match → context → Zia → validate → persist |
-| `Execute Approved AI Recommendation` | **PLANNED** | Approved-action execution; see `execute_approved_recommendation_flow.md` |
+| `TeamInbox to CRM Payload Test` | **LIVE and ON**; all four routes carry completion-check + bounded retry + safe-timeout (2026-07-22) | Ingestion (4-branch): webhook → normalize → dedup → CRM match → context → Zia poll → validate → persist |
+| Single-path ingestion flow | **BUILT and validated end-to-end (2026-07-22)** | Consolidated one-path equivalent of the 4-branch flow; see `docs/single_path_refactor_spec.md` |
+| `Execute Approved AI Recommendation` | **LIVE and ON** | Approved-action execution; verified creating a CRM Task from an abstracted-flow record on 2026-07-22. See `execute_approved_recommendation_flow.md` |
 
 ## Custom functions
 
@@ -41,17 +42,30 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 | `validate_zia_analysis_response` | `(string raw_response, map trusted_request)` → map | LIVE / REPO | `scripts/validate_zia_analysis_response.deluge` |
 | `validate_zia_analysis_response_no_match` | `(string raw_response, map trusted_request)` → map | LIVE / REPO | `scripts/validate_zia_analysis_response_no_match.deluge` |
 | `check_ai_recommendation_exists` | `(string idempotency_key)` → map | LIVE / REPO | `scripts/check_ai_recommendation_exists.deluge` |
-| `persist_ai_recommendation` | `(map validated_analysis)` → map | **DRAFT — cannot work as written** | `scripts/persist_ai_recommendation.deluge` |
-| `execute_approved_recommendation` | `(string ai_recommendation_record_id)` → map | REPO, undeployed | `scripts/execute_approved_recommendation.deluge` |
+| `is_zia_analysis_complete` | `(string status_value, string response_value)` → map | LIVE / REPO | `scripts/is_zia_analysis_complete.deluge` |
+| `build_zia_timeout_fallback` | `(map trusted_request)` → map | LIVE / REPO | `scripts/build_zia_timeout_fallback.deluge` |
+| `execute_approved_recommendation` | `(string ai_recommendation_record_id)` → map | LIVE / REPO | `scripts/execute_approved_recommendation.deluge` |
 
-### Repository/source gaps
+### Single-path refactor functions (`scripts/single_path/`)
 
-1. **`persist_ai_recommendation` is stale.** It writes ~20 fields that do not exist on
-   the live module, uses `Target_Record_Id` where the live name is `Target_Record_ID`,
-   and writes to a non-existent `Idempotency_Key` API name (the live API name is
-   `Name`). It is not deployed: the live Flow persists with three route-specific Zoho
-   CRM **Create or update module entry** actions. This draft must not be treated as a
-   source export or deployment artifact.
+These back the consolidated one-path flow proven end-to-end on 2026-07-22. See
+`docs/single_path_refactor_spec.md`.
+
+| Function | Signature | State | Source |
+| --- | --- | --- | --- |
+| `resolve_crm_match` | `(string from_email, string from_domain)` → map | REPO, single-path | `scripts/single_path/resolve_crm_match.deluge` |
+| `fetch_open_related` | `(map match)` → map | REPO, single-path | `scripts/single_path/fetch_open_related.deluge` |
+| `validate_zia_analysis_response_tagged` | `(string raw_response, map trusted_request)` → map | REPO, single-path | `scripts/single_path/validate_zia_analysis_response_tagged.deluge` |
+| `persist_recommendation` | `(map validated)` → map | REPO, single-path | `scripts/single_path/persist_recommendation.deluge` |
+
+### Notes
+
+1. The stale `persist_ai_recommendation.deluge` draft (wrote ~20 non-existent fields,
+   wrong API names) was **retired and deleted** on 2026-07-22. The live 4-branch flow
+   persists with route-specific Zoho CRM **Create or update module entry** actions; the
+   single-path flow persists with `single_path/persist_recommendation` (a V8
+   `invokeurl` create — `Validated_Analysis_JSON` is capped at 2000 chars and
+   `Raw_Zia_Response` is stored separately, not embedded).
 
 ## The idempotency key: label vs API name
 
@@ -190,8 +204,8 @@ only — see `execute_approved_recommendation_flow.md`.
 
 ## Outstanding inventory work
 
-1. Retire or rewrite the stale `persist_ai_recommendation.deluge` draft; the live
-   persistence implementation is a route-specific CRM action, not this function.
-2. Capture exact input/output schemas for each custom function; only signatures are
+1. Capture exact input/output schemas for each custom function; only signatures are
    recorded today.
-3. Record deployment/version notes per function once the Flow structure is frozen.
+2. Record deployment/version notes per function once the Flow structure is frozen.
+3. If the single-path flow is adopted as live, mark the 4-branch flow retired here and
+   promote `scripts/single_path/` functions from "single-path" to "LIVE".

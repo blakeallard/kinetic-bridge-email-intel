@@ -1,0 +1,37 @@
+map build_zia_timeout_fallback(map trusted_request)
+{
+trusted_message = ifnull(trusted_request.get("message"),Map());
+intent = Map();
+intent.put("category","unknown");
+intent.put("summary","");
+lifecycle = Map();
+lifecycle.put("observed_stage","");
+lifecycle.put("recommended_stage",null);
+lifecycle.put("change_recommended",false);
+lifecycle.put("evidence",List());
+recommendation = Map();
+recommendation.put("action","manual_review");
+recommendation.put("confidence_band","low");
+recommendation.put("rationale","Zia analysis did not complete within the bounded wait window.");
+recommendation.put("review_notes","Zia analysis timed out. Review the original email manually and rerun analysis if needed.");
+recommendation.put("target_module","");
+recommendation.put("target_record_id","");
+safety = Map();
+safety.put("human_approval_required",true);
+safety.put("closed_won_change_requested",false);
+safety.put("quote_generation_requested",false);
+safety.put("contains_insufficient_context",true);
+conflicts = List();
+conflicts.add("zia_analysis_timeout");
+safety.put("conflicts",conflicts);
+validated = Map();
+validated.put("schema_version","1.0");
+validated.put("message_id",ifnull(trusted_message.get("message_id"),"").toString());
+validated.put("idempotency_key",ifnull(trusted_message.get("idempotency_key"),""));
+validated.put("intent",intent);
+validated.put("opportunity_signals",List());
+validated.put("lifecycle_interpretation",lifecycle);
+validated.put("recommendation",recommendation);
+validated.put("safety",safety);
+return validated;
+}

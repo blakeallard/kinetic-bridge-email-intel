@@ -1,0 +1,77 @@
+map persist_recommendation(map validated)
+{
+result = Map();
+recommendation = ifnull(validated.get("recommendation"),Map());
+safety = ifnull(validated.get("safety"),Map());
+record = Map();
+record.put("Name",ifnull(validated.get("idempotency_key"),""));
+record.put("Message_ID",ifnull(validated.get("message_id"),"").toString());
+record.put("Target_Module",ifnull(recommendation.get("target_module"),""));
+record.put("Target_Record_ID",ifnull(recommendation.get("target_record_id"),"").toString());
+record.put("Recommendation_Type",ifnull(recommendation.get("action"),""));
+record.put("Requires_Approval",ifnull(safety.get("human_approval_required"),true));
+raw_zia_text = ifnull(validated.get("raw_zia_response"),"").toString();
+validated.remove("raw_zia_response");
+analysis_text = validated.toString();
+if(analysis_text.length() > 2000)
+{
+	analysis_text = analysis_text.subString(0,2000);
+}
+if(raw_zia_text.length() > 2000)
+{
+	raw_zia_text = raw_zia_text.subString(0,2000);
+}
+record.put("Validated_Analysis_JSON",analysis_text);
+record.put("Raw_Zia_Response",raw_zia_text);
+record.put("Review_Notes",ifnull(recommendation.get("review_notes"),""));
+record.put("Status","Pending Review");
+record.put("Created_By_AI",true);
+record.put("Validation_Status",ifnull(validated.get("validation_status"),"fallback"));
+record.put("Execution_Status","Not Started");
+records_list = List();
+records_list.add(record);
+request_body = Map();
+request_body.put("data",records_list);
+record_id = "";
+api_code = "";
+api_message = "";
+api_details = Map();
+try
+{
+	api_response = invokeurl
+	[
+		url :"https://www.zohoapis.com/crm/v8/AI_Recommendations"
+		type :POST
+		parameters:request_body.toString()
+		connection:"zoho_crm_to_zoho_flow"
+	];
+	data_items = api_response.get("data");
+	if(data_items != null && data_items.size() > 0)
+	{
+		first_item = data_items.get(0);
+		api_code = ifnull(first_item.get("code"),"").toString();
+		api_message = ifnull(first_item.get("message"),"").toString();
+		details = first_item.get("details");
+		if(details != null)
+		{
+			api_details = details;
+			if(details.get("id") != null)
+			{
+				record_id = details.get("id").toString();
+			}
+		}
+	}
+}
+catch (persist_error)
+{
+	api_code = "ERROR";
+	api_message = persist_error.toString();
+}
+result.put("persisted",record_id != "");
+result.put("record_id",record_id);
+result.put("api_code",api_code);
+result.put("api_message",api_message);
+result.put("api_details",api_details);
+result.put("idempotency_key",ifnull(validated.get("idempotency_key"),""));
+return result;
+}

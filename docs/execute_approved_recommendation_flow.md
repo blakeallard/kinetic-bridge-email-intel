@@ -169,7 +169,8 @@ no credentials in this environment. Two specific unknowns:
    spuriously; if two writes land inside the same second, both preconditions could
    pass and the race would reopen for a sub-second window.
 2. **Deluge header support.** `zoho.crm.updateRecord()` cannot set custom headers, so
-   the claim uses `invokeurl` with a named connection (`bi1_t110_crm`). The parity
+   the claim uses `invokeurl` with the existing named connection
+   (`zoho_crm_to_zoho_flow`). The parity
    tests pin this to a single PUT against the recommendation module so it cannot
    become a general-purpose escape hatch.
 
@@ -284,9 +285,9 @@ not been performed.
    field-editor UI shows `Contacts`, `Leads`, `Deals`, and `Accounts`. No schema change
    is required. The older API metadata result that omitted `Accounts` is superseded as
    current-state evidence; see the dated correction in the inspection document.
-2. **Create the `bi1_t110_crm` Zoho Flow connection.** The conditional claim uses
-   `invokeurl`, which needs a named CRM connection with `ZohoCRM.modules.ALL`. Store
-   it as a Flow connection — never as a literal in the function.
+2. **Use the existing `zoho_crm_to_zoho_flow` connection.** Its confirmed CRM CRUD,
+   Task-create, and custom-module permissions cover the conditional claim and Task
+   creation used by this function. Do not create a redundant connection.
 3. **Verify execution field metadata:**
    `python3 scripts/zoho_crm_admin.py inspect-execution-fields`
    Expect `missing: []` and `mismatched: []`. All seven execution fields were
