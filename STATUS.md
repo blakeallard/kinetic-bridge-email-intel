@@ -6,7 +6,7 @@
 
 Zoho Task ID: 2543412000001583003
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-23
 
 Canonical current-state file:
 
@@ -21,14 +21,25 @@ Current source of truth:
 ## Current State
 
 Estimated completion against the full handwritten Steps 1–7: **~95%**.
-The natural-email-to-approved-CRM-Task milestone is **complete and live-validated**, on
-both flow implementations.
+The natural-email-to-approved-CRM-Task milestone is **complete and live-validated**. The
+single-path flow is now the live ingestion flow (ON); the 4-branch flow is retired (OFF).
 
 The ingestion path is live and validated end to end through persistence, human
 approval, and execution to a CRM Task. The approved-action execution Flow and custom
 function are deployed and ON. Contact, Lead, and Account recommendations have created
 correctly linked CRM Tasks, duplicate replays created no second Tasks, and natural
 email passed the complete email-to-recommendation-to-approval-to-Task path.
+
+Landed on 2026-07-23:
+
+- **Datastore-enforced ingestion idempotency.** The unique `Ingestion_Key` field is live
+  on `AI_Recommendations`, and `persist_recommendation` treats a `DUPLICATE_DATA` create
+  response as "already recorded" rather than an error. This closes the last known
+  correctness gap: previously the Flow-level `check_ai_recommendation_exists` guard was a
+  read-then-write and could not stop two concurrent deliveries of the same message from
+  creating two records. Independently confirmed via CRM read on 2026-07-23 — record
+  `6719186000003380001` carries `Ingestion_Key = teaminbox:901489292:1784900000000119001`.
+  **This work is complete and passing (154 tests, ruff clean) but is NOT yet committed.**
 
 Two significant pieces landed on 2026-07-22:
 
@@ -37,11 +48,18 @@ Two significant pieces landed on 2026-07-22:
   `build_zia_timeout_fallback`, so no route validates an incomplete Zia response. Every
   block mapping is recorded in `docs/zoho_flow_variable_map.md`; the pattern is in
   `docs/zia_completion_polling_pattern.md`.
-- **Single-path flow built and validated end-to-end.** A consolidated one-path
+- **Single-path flow built, validated, and cut over to live.** A consolidated one-path
   equivalent (~26 blocks vs ~80) was built and proven via Postman webhooks across all
   four match routes, the three gate skips, dedup, association, valid + fallback persist,
-  and then through approval + executor to a real CRM Task. It is a proven drop-in
-  candidate, not yet swapped in. Spec + code: `docs/single_path_refactor_spec.md`,
+  and then through approval + executor to a real CRM Task. It has since been **swapped in
+  as the live ingestion flow** — the 4-branch flow is OFF and the single-path flow is ON.
+  The live Zoho canvas runs `normalize_teaminbox` → `Should Process?` →
+  `check_ai_recommendation_exists` → `Already Exists?` → `resolve_crm_match` →
+  `fetch_open_related` → `build_crm_context` → `associate_email_to_crm_record` →
+  `build_crm_snapshot` → `build_ai_analysis_request` → Zia trigger/fetch → two-stage
+  completion polling (`Zia Complete? 1` → retry → `Zia Complete? 2` →
+  `build_zia_timeout_fallback`) → `validate_zia_analysis_response_tagged` →
+  `persist_recommendation`. Spec + code: `docs/single_path_refactor_spec.md`,
   `scripts/single_path/`.
 
 ### Verified live in Zoho
@@ -136,6 +154,12 @@ Two significant pieces landed on 2026-07-22:
 - The execution Flow trigger is now filtered by `Status=Approved AND
   Execution_Status=Not Started`, preventing the executor's own bookkeeping updates
   from qualifying as new executions.
+- Ingestion idempotency is now datastore-enforced (2026-07-23). The unique
+  `Ingestion_Key` field is live; a fresh message (`teaminbox:901489292:1784900000000119001`)
+  persisted once as record `6719186000003380001` (`persisted=true`), and a manual
+  attempt to create a second record with the same `Ingestion_Key` was rejected by CRM
+  with "Duplicate values are not allowed." The updated `persist_recommendation` function
+  is deployed in the live single-path Flow.
 
 ### Implemented locally
 
@@ -145,9 +169,15 @@ Two significant pieces landed on 2026-07-22:
 - `scripts/execute_approved_recommendation.deluge` — the executor custom function.
 - `scripts/execution_policy.py` — the executable specification it translates.
 - `scripts/zoho_crm_admin.py` — Zoho CRM V8 inspection + idempotent setup utility.
-- 144 automated tests, all passing offline with no dependencies — including a
+- 154 automated tests, all passing offline with no dependencies — including a
   two-caller concurrency test proving exactly one execution reaches Task creation,
-  and tests pinning the terminal-failure policy.
+  tests pinning the terminal-failure policy, and static coverage of the ingestion
+  idempotency contract (unique `Ingestion_Key`, duplicate-idempotent persist).
+- Ingestion idempotency enforcement (deployed and live-validated 2026-07-23): a new
+  unique `Ingestion_Key` field on `AI_Recommendations` plus `persist_recommendation`
+  treating a `DUPLICATE_DATA` create response as "already recorded". Field setup is
+  `scripts/zoho_crm_admin.py setup-ingestion-metadata`; mirrors the executor's proven
+  `Execution_Key` pattern.
 - `docs/execute_approved_recommendation_flow.md` — exact Flow wiring and acceptance
   tests.
 - `docs/zoho_flow_inventory.md` — source-controlled Flow/function inventory.
@@ -194,27 +224,39 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
 
 ## Blockers
 
-1. **Ingestion idempotency is not datastore-enforced.** The dedup key is the field
-   labelled `Idempotency_Key`, whose API name is `Name`; it carries no unique
-   constraint. Duplicate checking exists in Zoho Flow
-   (`check_ai_recommendation_exists`) but is a read-then-write, so concurrent delivery
-   of one message can still create two recommendation records. Applies to both the
-   live 4-branch flow and the single-path flow.
-2. **No Zoho API credentials in the local working environment.** Live changes require
-   operator deployment through Zoho Flow; all flow work is verified through
-   operator-supplied Test & Debug and Postman-webhook evidence.
+1. **No Zoho OAuth credentials in the local working environment.** `ZOHO_CRM_CLIENT_ID`,
+   `ZOHO_CRM_CLIENT_SECRET`, and `ZOHO_CRM_REFRESH_TOKEN` are unset, so
+   `scripts/zoho_crm_admin.py` has never run against Zoho. This blocks the Blueprint
+   inspection below.
 
-## Next Actions
+   Note the distinction: an authenticated **read-only MCP path** to Zoho CRM does exist
+   and has been used throughout for record and metadata verification. It cannot deploy
+   Deluge functions, edit Flows, create fields, or read Blueprint transitions.
 
-1. Add ingestion-side idempotency enforcement (only remaining functional gap; see
-   Blocker 1).
-2. Run the conditional-claim concurrency acceptance test (two concurrent approvals of
-   one record) to close the execution-stage concurrency case.
-3. Decide whether to adopt the single-path flow as the live ingestion flow. It is a
-   proven drop-in (see `docs/single_path_refactor_spec.md`); switching means turning
-   the 4-branch flow OFF and the single-path flow ON.
-4. Resolve requirement 17: run `zoho_crm_admin.py inspect-blueprint` to determine
-   whether an API-invocable `Approved → Executed` transition exists.
+## Remaining work
+
+Three items. Nothing else is outstanding.
+
+1. **Commit the `Ingestion_Key` work.** 8 modified files, 154 tests passing, ruff clean.
+   Complete and live-validated; held only pending operator approval to commit.
+2. **Concurrency acceptance test.** Two concurrent approvals of one recommendation,
+   proving exactly one CRM Task is created. Operator-only: it needs two overlapping
+   executions of the live Flow, which neither the MCP path nor the local test suite can
+   produce. This is the last unverified assumption in the execution stage — the
+   `If-Unmodified-Since` conditional claim is proven offline but not against live Zoho.
+3. **Blueprint inspection (requirement 17).** Determine whether an API-invocable
+   `Approved → Executed` transition exists. Until proven, `Execution_Status` remains the
+   execution source of truth and the executor does not touch the Blueprint-controlled
+   `Status` field. Requires the OAuth credentials above; no MCP tool exposes the CRM
+   Blueprint transitions API (verified 2026-07-23).
+
+Step-by-step operator instructions for items 2 and 3 are in
+`docs/execute_approved_recommendation_flow.md`.
+
+Done and requiring no further action: the single-path flow is the live ingestion flow
+(4-branch OFF, single-path ON), confirmed against the live Zoho canvas; ingestion
+idempotency is datastore-enforced via the unique `Ingestion_Key` field, deployed and
+live-validated 2026-07-23.
 
 Agent rule:
 

@@ -55,6 +55,28 @@ class TestRecommendationDuplicateLookup(unittest.TestCase):
             self.assertIn(f'result.put("{field}"', self.source)
 
 
+class TestRecommendationPersist(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (SCRIPTS / "single_path" / "persist_recommendation.deluge").read_text()
+
+    def test_writes_the_key_to_the_unique_ingestion_field(self):
+        self.assertIn('record.put("Ingestion_Key",ifnull(validated.get("idempotency_key"),""))', self.source)
+
+    def test_still_writes_the_display_name_field(self):
+        self.assertIn('record.put("Name",ifnull(validated.get("idempotency_key"),""))', self.source)
+
+    def test_treats_a_datastore_duplicate_as_already_recorded(self):
+        self.assertIn('api_code == "DUPLICATE_DATA"', self.source)
+        self.assertIn('duplicate_record = details.get("duplicate_record")', self.source)
+
+    def test_persisted_is_only_true_on_a_fresh_create(self):
+        self.assertIn('result.put("persisted",api_code == "SUCCESS" && record_id != "")', self.source)
+
+    def test_returns_the_duplicate_flag(self):
+        self.assertIn('result.put("duplicate",duplicate)', self.source)
+
+
 class TestLeadOpenTaskLookup(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

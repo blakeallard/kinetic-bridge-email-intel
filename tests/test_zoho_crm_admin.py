@@ -148,10 +148,48 @@ class TestExecutionFieldDiff(unittest.TestCase):
         self.assertEqual(diff["present"], [])
 
 
+class TestIngestionFieldDiff(unittest.TestCase):
+    @staticmethod
+    def live_fields(**overrides):
+        fields = []
+        for required in admin.REQUIRED_INGESTION_FIELDS:
+            name = required["api_name"]
+            fields.append({
+                "api_name": name,
+                "data_type": overrides.get(f"{name}__type", required["data_type"]),
+                "unique": overrides.get(f"{name}__unique", bool(required.get("unique"))),
+            })
+        return [f for f in fields if f["api_name"] not in overrides.get("drop", ())]
+
+    def test_fully_provisioned_module_reports_nothing_to_do(self):
+        diff = admin.diff_ingestion_fields(self.live_fields())
+        self.assertEqual(diff["missing"], [])
+        self.assertEqual(diff["mismatched"], [])
+        self.assertEqual(len(diff["present"]), len(admin.REQUIRED_INGESTION_FIELDS))
+
+    def test_missing_field_is_listed(self):
+        diff = admin.diff_ingestion_fields([])
+        self.assertEqual(diff["missing"], ["Ingestion_Key"])
+
+    def test_non_unique_ingestion_key_is_reported_as_mismatch(self):
+        diff = admin.diff_ingestion_fields(self.live_fields(Ingestion_Key__unique=False))
+        self.assertTrue(any("unique" in m for m in diff["mismatched"]))
+
+
 class TestContractShape(unittest.TestCase):
     def test_the_execution_key_is_declared_unique(self):
         by_name = {f["api_name"]: f for f in admin.REQUIRED_EXECUTION_FIELDS}
         self.assertTrue(by_name["Execution_Key"].get("unique"))
+
+    def test_the_ingestion_key_is_declared_case_insensitive_unique(self):
+        by_name = {f["api_name"]: f for f in admin.REQUIRED_INGESTION_FIELDS}
+        unique = by_name["Ingestion_Key"].get("unique")
+        self.assertTrue(unique)
+        self.assertFalse(unique.get("case_sensitive"))
+
+    def test_ingestion_setup_requires_an_explicit_apply_flag(self):
+        args = admin.build_parser().parse_args(["setup-ingestion-metadata"])
+        self.assertFalse(args.apply, "dry run must be the default")
 
     def test_execution_status_declares_every_state_the_executor_writes(self):
         by_name = {f["api_name"]: f for f in admin.REQUIRED_EXECUTION_FIELDS}

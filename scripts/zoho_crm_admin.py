@@ -1,7 +1,8 @@
 """BI1-T110 — Zoho CRM V8 inspection and setup utility.
 
-Read-only inspection of the `AI_Recommendations` module plus an idempotent setup
-command for the execution metadata the approved-action executor depends on.
+Read-only inspection of the `AI_Recommendations` module plus idempotent setup
+commands for the execution metadata the approved-action executor depends on and the
+ingestion metadata (the unique `Ingestion_Key`) that enforces dedup at the datastore.
 
 Authentication comes exclusively from environment variables. No credential is ever
 written to stdout, to a file, or into an error message.
@@ -34,6 +35,9 @@ Usage
   python3 scripts/zoho_crm_admin.py inspect-execution-fields
   python3 scripts/zoho_crm_admin.py setup-execution-metadata --dry-run
   python3 scripts/zoho_crm_admin.py setup-execution-metadata --apply
+  python3 scripts/zoho_crm_admin.py inspect-ingestion-fields
+  python3 scripts/zoho_crm_admin.py setup-ingestion-metadata --dry-run
+  python3 scripts/zoho_crm_admin.py setup-ingestion-metadata --apply
 
 `--dry-run` is the default for every mutating command; `--apply` must be explicit.
 """
@@ -93,6 +97,17 @@ REQUIRED_EXECUTION_FIELDS: list[dict[str, Any]] = [
     {"api_name": "Executed_At", "field_label": "Executed_At", "data_type": "datetime"},
     {"api_name": "Execution_Error", "field_label": "Execution_Error", "data_type": "textarea"},
     {"api_name": "Execution_Attempts", "field_label": "Execution_Attempts", "data_type": "integer"},
+]
+
+
+REQUIRED_INGESTION_FIELDS: list[dict[str, Any]] = [
+    {
+        "api_name": "Ingestion_Key",
+        "field_label": "Ingestion_Key",
+        "data_type": "text",
+        "length": 255,
+        "unique": {"case_sensitive": False},
+    },
 ]
 
 
@@ -230,15 +245,17 @@ def summarize_fields(fields_body: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(out, key=lambda f: f["api_name"] or "")
 
 
-def diff_execution_fields(existing: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """Compare live fields against REQUIRED_EXECUTION_FIELDS.
+def diff_required_fields(
+    existing: list[dict[str, Any]], required_fields: list[dict[str, Any]]
+) -> dict[str, list[str]]:
+    """Compare live fields against a required-field contract.
 
     Returns present/missing names plus any field whose live type contradicts the
     contract — a mismatch is reported, never silently "fixed".
     """
     by_name = {f["api_name"]: f for f in existing}
     present, missing, mismatched = [], [], []
-    for required in REQUIRED_EXECUTION_FIELDS:
+    for required in required_fields:
         name = required["api_name"]
         live = by_name.get(name)
         if live is None:
@@ -250,6 +267,16 @@ def diff_execution_fields(existing: list[dict[str, Any]]) -> dict[str, list[str]
         if required.get("unique") and not live.get("unique"):
             mismatched.append(f"{name}: expected a unique constraint, live field is not unique")
     return {"present": present, "missing": missing, "mismatched": mismatched}
+
+
+def diff_execution_fields(existing: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Compare live fields against REQUIRED_EXECUTION_FIELDS."""
+    return diff_required_fields(existing, REQUIRED_EXECUTION_FIELDS)
+
+
+def diff_ingestion_fields(existing: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Compare live fields against REQUIRED_INGESTION_FIELDS."""
+    return diff_required_fields(existing, REQUIRED_INGESTION_FIELDS)
 
 
 
@@ -329,11 +356,23 @@ def cmd_inspect_execution_fields(env: dict[str, str], _args: argparse.Namespace)
     return 0
 
 
-def cmd_setup_execution_metadata(env: dict[str, str], args: argparse.Namespace) -> int:
-    """Idempotently create only the execution fields that are missing."""
+def cmd_inspect_ingestion_fields(env: dict[str, str], _args: argparse.Namespace) -> int:
+    body = _client(env).request(f"settings/fields?module={MODULE_API_NAME}")
+    summary = summarize_fields(body)
+    print(json.dumps(diff_ingestion_fields(summary), indent=2))
+    return 0
+
+
+def _setup_fields(
+    env: dict[str, str],
+    args: argparse.Namespace,
+    required_fields: list[dict[str, Any]],
+    noop_reason: str,
+) -> int:
+    """Idempotently create only the contract fields that are missing."""
     client = _client(env)
     summary = summarize_fields(client.request(f"settings/fields?module={MODULE_API_NAME}"))
-    diff = diff_execution_fields(summary)
+    diff = diff_required_fields(summary, required_fields)
 
     if diff["mismatched"]:
         print("Refusing to proceed — live fields contradict the contract:", file=sys.stderr)
@@ -342,11 +381,11 @@ def cmd_setup_execution_metadata(env: dict[str, str], args: argparse.Namespace) 
         return 1
 
     if not diff["missing"]:
-        print(json.dumps({"action": "noop", "reason": "all_execution_fields_present",
+        print(json.dumps({"action": "noop", "reason": noop_reason,
                           "present": diff["present"]}, indent=2))
         return 0
 
-    to_create = [f for f in REQUIRED_EXECUTION_FIELDS if f["api_name"] in diff["missing"]]
+    to_create = [f for f in required_fields if f["api_name"] in diff["missing"]]
     if not args.apply:
         print(json.dumps({"action": "dry-run", "would_create": [f["api_name"] for f in to_create],
                           "payload": {"fields": to_create}}, indent=2))
@@ -359,13 +398,23 @@ def cmd_setup_execution_metadata(env: dict[str, str], args: argparse.Namespace) 
     return 0
 
 
+def cmd_setup_execution_metadata(env: dict[str, str], args: argparse.Namespace) -> int:
+    return _setup_fields(env, args, REQUIRED_EXECUTION_FIELDS, "all_execution_fields_present")
+
+
+def cmd_setup_ingestion_metadata(env: dict[str, str], args: argparse.Namespace) -> int:
+    return _setup_fields(env, args, REQUIRED_INGESTION_FIELDS, "all_ingestion_fields_present")
+
+
 COMMANDS = {
     "inspect-module": cmd_inspect_module,
     "inspect-fields": cmd_inspect_fields,
     "inspect-layouts": cmd_inspect_layouts,
     "inspect-blueprint": cmd_inspect_blueprint,
     "inspect-execution-fields": cmd_inspect_execution_fields,
+    "inspect-ingestion-fields": cmd_inspect_ingestion_fields,
     "setup-execution-metadata": cmd_setup_execution_metadata,
+    "setup-ingestion-metadata": cmd_setup_ingestion_metadata,
 }
 
 

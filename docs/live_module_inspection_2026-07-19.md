@@ -191,6 +191,15 @@ This does not affect execution-stage safety, which uses a conditional
 Remedy (ingestion, outside this stage): add a unique constraint to `Name`, or add a
 separate unique field and write the key to both.
 
+**Chosen remedy (2026-07-23):** the separate-unique-field option. A new
+`Ingestion_Key` field (text 255, unique case-insensitive) is added to the module, and
+`persist_recommendation` writes the key to both `Name` and `Ingestion_Key`. The
+mandatory display field `Name` is left non-unique to avoid a retroactive-uniqueness
+failure on the display field. On a concurrent duplicate, the create returns
+`DUPLICATE_DATA` and persist treats it as "already recorded" — mirroring the executor's
+`Execution_Key` handling. Field setup: `zoho_crm_admin.py setup-ingestion-metadata`.
+Once this is deployed, `Execution_Key` is no longer the only unique field in the module.
+
 ### 3. `Validated_Analysis_JSON` is empty on verified records
 
 Only `Raw_Zia_Response` is populated. The executor treats the raw response as

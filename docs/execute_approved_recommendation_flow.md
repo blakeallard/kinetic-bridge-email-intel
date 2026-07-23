@@ -6,8 +6,16 @@ The separate execution stage. It converts an **approved** `AI_Recommendations` r
 into exactly one Zoho CRM Task. It is deliberately a different Flow from the ingestion
 Flow so that approval and execution cannot share a failure mode.
 
-**Deployment state: not deployed.** Nothing in this document has been created in Zoho.
-The Deluge source and its tests exist in this repository only.
+**Deployment state: DEPLOYED and ON** (as of 2026-07-22). The custom function and the
+`Execute Approved AI Recommendation` Flow are live in Zoho. Contact, Lead, and Account
+recommendations have each executed to a correctly linked CRM Task, and duplicate replays
+returned `duplicate` / `already_claimed` without creating a second Task.
+
+The trigger is filtered by `Status = Approved AND Execution_Status = Not Started`, so the
+executor's own bookkeeping updates cannot re-qualify as new executions.
+
+One assumption remains unverified against live Zoho: the conditional-claim behaviour under
+genuine concurrency. See "Operator runbook" at the end of this document.
 
 ## Design
 
@@ -436,3 +444,88 @@ error code only, never the response body, because that body can contain a token.
    contains the same checks, constants, and bounds as the tested Python, and that it
    performs no forbidden operation. They cannot prove the Deluge behaves identically.
    Only the live acceptance tests can.
+
+## Operator runbook — the two remaining verification steps
+
+Written 2026-07-23. These are the only outstanding items in BI1-T110. Both require
+operator access that the repository tooling does not have.
+
+### Step A — Concurrency acceptance test (execution stage)
+
+**Why:** the conditional `If-Unmodified-Since` claim is proven by the offline test suite
+but has never been exercised against live Zoho. This is the last unverified assumption in
+the execution stage. If it fails, the execution-ledger fallback described above must be
+built before this Flow can be trusted under concurrent load.
+
+#### Setup
+
+1. Create or pick an `AI_Recommendations` record that satisfies every precondition:
+   `Status = Pending Review`, `Requires_Approval = true`, `Created_By_AI = true`,
+   `Validation_Status = valid`, `Recommendation_Type = create_crm_task`,
+   `Target_Module` one of Contacts / Leads / Accounts, `Target_Record_ID` non-blank.
+2. Confirm its execution fields are clear: `Execution_Status` blank or `Not Started`,
+   `Execution_Key` blank, `Executed_Task_ID` blank, `Execution_Attempts` blank or 0.
+3. Note the record ID and its target record ID.
+
+#### Run
+
+1. Open the `Execute Approved AI Recommendation` Flow in Test & Debug.
+2. Fire the custom function **twice as close to simultaneously as the tooling allows** —
+   two browser tabs triggered back to back, or two rapid Postman calls to the Flow's
+   webhook if one is configured. The goal is overlapping execution, not sequential.
+
+#### Expected
+
+- Exactly one invocation returns `status = executed` with an `executed_task_id`.
+- The other returns `status = duplicate` with reason `claim_lost_race`
+  (or `already_claimed` if the first fully finished before the second read).
+- The recommendation shows `Execution_Status = Executed`, `Execution_Attempts = 1`.
+- **CRM UI shows exactly ONE new open Task** on the target record.
+
+**If two Tasks are created:** the conditional claim is not enforcing the precondition.
+Stop, switch the Flow OFF, and build the execution-ledger fallback. Record the actual
+response codes both invocations received — that determines whether the problem is
+timestamp granularity or header support.
+
+### Step B — Blueprint transition inspection (requirement 17)
+
+**Why:** the executor deliberately does not move the Blueprint-controlled `Status` field
+from `Approved` to `Executed`, because no API-invocable transition has been proven to
+exist. `Execution_Status` is the execution source of truth until this is settled. The
+practical cost of leaving it unresolved: a reviewer scanning the `Status` column alone
+cannot tell an executed recommendation from a merely approved one.
+
+#### Run
+
+Export the OAuth credentials into the shell — never into a file in this repository — and
+run the inspection command:
+
+```bash
+export ZOHO_CRM_CLIENT_ID=...
+export ZOHO_CRM_CLIENT_SECRET=...
+export ZOHO_CRM_REFRESH_TOKEN=...
+export ZOHO_CRM_DC=us
+
+ZOHO_CRM_SAMPLE_RECORD_ID=6719186000003183001 \
+  python3 scripts/zoho_crm_admin.py inspect-blueprint
+```
+
+Required scope: `ZohoCRM.settings.modules.READ` plus record read on the module. The
+sample record must be one currently sitting in an `Approved` Blueprint state.
+
+#### Interpreting the output
+
+- **A transition named something like `Approved → Executed` is listed** → the transition
+  exists and is API-invocable. The executor may be extended to call it after a successful
+  Task creation. Do this as a *separate* change with its own test, and only after Step A
+  passes.
+- **Only `Approve Recommendation` / `Reject Recommendation` are listed, or the list is
+  empty** → no such transition exists. Keep the current design. Record the result here and
+  close requirement 17 as answered.
+
+**Either way, record the raw output in this document** so the question is not reopened.
+
+### After both steps
+
+Update `STATUS.md` and `docs/CURRENT_HANDOFF.md` with the results, then BI1-T110 has no
+remaining verification work.

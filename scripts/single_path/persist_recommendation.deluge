@@ -5,6 +5,7 @@ recommendation = ifnull(validated.get("recommendation"),Map());
 safety = ifnull(validated.get("safety"),Map());
 record = Map();
 record.put("Name",ifnull(validated.get("idempotency_key"),""));
+record.put("Ingestion_Key",ifnull(validated.get("idempotency_key"),""));
 record.put("Message_ID",ifnull(validated.get("message_id"),"").toString());
 record.put("Target_Module",ifnull(recommendation.get("target_module"),""));
 record.put("Target_Record_ID",ifnull(recommendation.get("target_record_id"),"").toString());
@@ -36,6 +37,7 @@ record_id = "";
 api_code = "";
 api_message = "";
 api_details = Map();
+duplicate = false;
 try
 {
 	api_response = invokeurl
@@ -55,7 +57,20 @@ try
 		if(details != null)
 		{
 			api_details = details;
-			if(details.get("id") != null)
+			if(api_code == "DUPLICATE_DATA")
+			{
+				duplicate = true;
+				duplicate_record = details.get("duplicate_record");
+				if(duplicate_record != null && duplicate_record.get("id") != null)
+				{
+					record_id = duplicate_record.get("id").toString();
+				}
+				else if(details.get("id") != null)
+				{
+					record_id = details.get("id").toString();
+				}
+			}
+			else if(details.get("id") != null)
 			{
 				record_id = details.get("id").toString();
 			}
@@ -67,7 +82,8 @@ catch (persist_error)
 	api_code = "ERROR";
 	api_message = persist_error.toString();
 }
-result.put("persisted",record_id != "");
+result.put("persisted",api_code == "SUCCESS" && record_id != "");
+result.put("duplicate",duplicate);
 result.put("record_id",record_id);
 result.put("api_code",api_code);
 result.put("api_message",api_message);

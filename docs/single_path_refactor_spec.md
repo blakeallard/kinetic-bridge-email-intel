@@ -51,6 +51,11 @@ connection string cleanly, so raw `invokeurl` is used, matching
 `raw_zia_response` stripped out of it, and `Raw_Zia_Response` stores the raw text
 separately (also capped at 2000). Returns `persisted`, `record_id`, `api_code`,
 `api_message`, and `api_details` (the last exposes the rejected field on `INVALID_DATA`).
+Ingestion idempotency is datastore-enforced: the key is also written to the unique
+`Ingestion_Key` field, and a `DUPLICATE_DATA` create response is treated as "already
+recorded" — `persisted=false`, `duplicate=true`, `record_id` set to the existing record
+from `details.duplicate_record.id`. `persisted` is `true` only on a fresh `SUCCESS`
+create.
 Every terminal branch calls this one function instead of a hand-mapped Create block.
 
 ### 4. `validate_zia_analysis_response_tagged` → map  (NEW — a clone, not an in-place edit)
@@ -125,6 +130,7 @@ Reused unchanged: `normalize_teaminbox_payload`, `check_ai_recommendation_exists
 | AI_Recommendations field (API name) | Source |
 | --- | --- |
 | `Name` (Idempotency_Key) | `validated.idempotency_key` |
+| `Ingestion_Key` (unique) | `validated.idempotency_key` |
 | `Message_ID` | `validated.message_id` |
 | `Target_Module` | `validated.recommendation.target_module` |
 | `Target_Record_ID` | `validated.recommendation.target_record_id` |

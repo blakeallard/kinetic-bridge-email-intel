@@ -71,9 +71,17 @@ These back the consolidated one-path flow proven end-to-end on 2026-07-22. See
 
 The CRM field **labelled** `Idempotency_Key` has the **API name** `Name`
 (`6719186000003163039`, text/120). Every script, COQL query, and API payload must use
-`Name`. It is **not unique**, so ingestion deduplication relies on the Flow-level
-`check_ai_recommendation_exists` guard rather than a datastore constraint, and
-concurrent ingestion of the same message is therefore **not datastore-enforced**.
+`Name`. `Name` itself is **not unique**; the Flow-level `check_ai_recommendation_exists`
+guard is only a cost-saving fast path (it short-circuits before Zia when a duplicate is
+already indexed), not the correctness mechanism.
+
+Datastore-enforced deduplication is provided by a separate **unique** field
+`Ingestion_Key` (text/255, unique case-insensitive), which `persist_recommendation`
+writes with the same `teaminbox:<portal>:<message_id>` key. A concurrent duplicate
+create is rejected with `DUPLICATE_DATA`, which persist treats as "already recorded"
+(returns the existing record id, `duplicate=true`). Add the field with
+`zoho_crm_admin.py setup-ingestion-metadata --apply`. (Code landed 2026-07-23; effective
+once the operator adds the field and deploys the updated function.)
 
 Execution-stage safety does not depend on this field — it uses a conditional
 `If-Unmodified-Since` claim keyed on `Modified_Time`.
