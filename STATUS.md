@@ -6,7 +6,7 @@
 
 Zoho Task ID: 2543412000001583003
 
-**Last updated:** 2026-07-23
+**Last updated:** 2026-07-24
 
 Canonical current-state file:
 
@@ -24,11 +24,155 @@ Estimated completion against the full handwritten Steps 1–7: **~99%**.
 The natural-email-to-approved-CRM-Task milestone is **complete and live-validated**. The
 single-path flow is now the live ingestion flow (ON); the 4-branch flow is retired (OFF).
 
-The ingestion path is live and validated end to end through persistence, human
-approval, and execution to a CRM Task. The approved-action execution Flow and custom
-function are deployed and ON. Contact, Lead, and Account recommendations have created
-correctly linked CRM Tasks, duplicate replays created no second Tasks, and natural
-email passed the complete email-to-recommendation-to-approval-to-Task path.
+The ingestion path is live through persistence, human approval, and the approved-action
+execution Flow, which is deployed and ON. Cliq recommendation notifications are working
+and Blueprint approval has been proven to run. **Two live defects are open (see the
+2026-07-24 audit below) and the full acceptance matrix has not yet passed, so the project
+is NOT done:** (1) the live `Trigger agent execution` block had a blank Query, so the
+fleet-pricing email reached Zia with no analysis request and was misclassified; (2) the
+executor passed a bare id string to the Task `Who_Id`/`What_Id` lookup, and the prior
+Lead Task creation failed with `Who_Id expected jsonobject but received string`. The
+repository executor has been corrected to the official `{"id": ...}` lookup shape, but a
+fresh live Lead execution test has not yet been run.
+
+Landed on 2026-07-24 (repo only — **not yet deployed to live Zoho**):
+
+- **`persist_recommendation` display/presentation rework.** Only the field mapping
+  changed; the API endpoint, `DUPLICATE_DATA` duplicate handling, the `Ingestion_Key`
+  idempotency write, the `result` contract, and the executor are untouched.
+  - `Name` is now a human-readable title — `AI Recommendation: Create CRM Task -
+    Request Information` — built by title-casing `recommendation.action` and
+    `intent.category`, capped at the field's 120 chars.
+  - `AI_Category`, `AI_Summary`, and `AI_Rationale` are now written (category,
+    what the email is requesting, why the AI recommended the action). These fields
+    exist live — confirmed by a CRM `getFields` read on 2026-07-24 — along with
+    `AI_Confidence`, which remains unmapped.
+  - `Safety_Summary` (multi-select picklist) is written as a Deluge `List`, which the
+    existing `request_body.toString()` serializes to a JSON array as CRM v8 expects.
+  - `Review_Notes` is now `Recommended Action: <action>` + LF + `Reason: <review_notes>`,
+    using `hexToText("0A")` (a literal `"\n"` renders as backslash-n in Deluge).
+  - **`check_ai_recommendation_exists` repointed to the unique key.** Its search criteria
+    moved from `(Name:equals:<key>)` to `(Ingestion_Key:equals:<key>)`, because `Name` is
+    now a human-readable title and would no longer match a replay. This keeps the
+    Flow-level fast-path guard cost-saving (short-circuits a replay before Zia runs);
+    datastore correctness never depended on it (the unique `Ingestion_Key` rejects the
+    duplicate create with `DUPLICATE_DATA` regardless).
+  - 210 tests pass.
+
+  **Live-Zoho state:**
+  1. `Safety_Summary`'s picklist was corrected in the CRM UI on 2026-07-24 to the five
+     values the code emits (`Human Approval Required`, `Closed Won Change Requested`,
+     `Quote Generation Requested`, `Insufficient Context`, `Conflict Detected`) —
+     confirmed by screenshot. The earlier `Option 1`/`Option 2` placeholders are gone,
+     so creates no longer fail with `INVALID_DATA`.
+  2. Both edited functions (`persist_recommendation`, `check_ai_recommendation_exists`)
+     still need to be pushed to their live Zoho Flow custom-function bodies; the repo is
+     ahead of live.
+
+## BI1-T110 end-to-end audit — 2026-07-24
+
+### 1. Current State
+
+Two live defects were diagnosed and one repository fix landed (repo only — **not yet
+deployed to live Zoho**). Offline suite: **217 tests pass**, `ruff` clean,
+`git diff --check` clean. The project is **NOT done**: the fresh live acceptance matrix
+below has not run.
+
+### 2. Confirmed Live Evidence
+
+- The live `Trigger agent execution` block had a **completely blank Query field** (Zoho
+  Flow UI screenshots). Its intended mapping is `${buildAiAnalysisRequest_8}`.
+  `Fetch trigger execution` is already correctly mapped to
+  `${triggerAgentExecution_11.executionId}`.
+- Because Zia received no analysis request, the fleet-expansion/pricing email was
+  misclassified as `support_request` / "customer requests assistance with product
+  setup". **That result is invalid evidence** — Zia never saw the intended request, so
+  it proves nothing about classification quality.
+- A prior approved **Lead** recommendation failed Task creation with
+  `Who_Id expected jsonobject but received string`.
+- Cliq recommendation notifications are working. Blueprint approval has been proven to run.
+
+### 3. Repository Changes Made
+
+- **`scripts/execute_approved_recommendation.deluge`** — Task `Who_Id`/`What_Id` are now
+  built as `{"id": target_record_id}` objects via a `target_lookup` map instead of a bare
+  id string. Field routing is unchanged (Contacts→`Who_Id`, Leads/Accounts→`What_Id`,
+  `$se_module` set for all three) — it already matched the official Zoho Kaizen #36 Tasks
+  API examples and the live Tasks field metadata (`Who_Id`/`What_Id` are both
+  `json_type: jsonobject`). The executor's `idempotency_key` used in the Task description
+  now reads `Ingestion_Key` (the durable key) instead of `Name` (now a human title).
+- **`scripts/execution_policy.py`** — same two changes in the executable spec, kept in
+  parity with the Deluge.
+- **`tests/test_execution_policy.py`, `tests/test_deluge_parity.py`** — updated the
+  lookup assertions to the `{"id": ...}` object shape and added focused tests: lookup
+  fields are id-objects not strings, the Deluge wraps the id and never assigns a bare
+  string to a lookup, and the description reads `Ingestion_Key` not the `Name` title.
+
+The **blank Query** defect is a **live Flow configuration fix**, not a code change — the
+repository already specifies `Query = ${request}` (single-path spec block 12). No code
+change fixes or is required for it.
+
+### 4. Offline Validation Results
+
+- `python3 -m unittest discover -s tests -q` → **217 passed**.
+- `ruff check scripts tests` → All checks passed.
+- `git diff --check` → clean.
+
+Offline tests assert the Deluge/Python contract only. **They do not confirm live Zoho
+behavior.**
+
+### 5. Remaining Live Zoho Tests
+
+The full acceptance matrix in "Fresh live acceptance test — 2026-07-24" below must pass,
+in particular a fresh **Lead** execution proving the `{"id": ...}` lookup creates a Task
+linked to Lead `6719186000003423001` with `status=executed`, `Execution_Attempts=1`,
+blank `Execution_Error`, and a duplicate replay creating no second Task. The corrected
+executor Deluge and the `Query = ${buildAiAnalysisRequest_8}` mapping must both be
+deployed to live Zoho first — the repo is ahead of live.
+
+### 6. Known Risks or Unverified Assumptions
+
+- The `{"id": ...}` lookup fix is verified against official docs and offline tests only,
+  not against a live Lead Task creation.
+- `build_ai_analysis_request` preserves the full email body (HTML tags stripped, no
+  truncation, summary/subject used only as fallbacks when the body is empty). It was not
+  the cause of the misclassification — the blank Query was.
+- The validator does **not** semantically detect unsupported claims (e.g. "product
+  setup" absent from the email); see the NO-CHANGE analysis below.
+- The Zia agent instructions live in the live Zia agent config
+  (`28302000000011001`, v3), not in this repo, and were not modified.
+
+### 7. Exact Declaration-of-Done Criteria
+
+Done only when every step of the fresh live acceptance test below passes: the fleet email
+classifies as `quote_request` (or the approved equivalent) with no unsupported
+product-setup claim, the recommendation persists as `Pending Review` with correct fields,
+the Cliq card is correct, approval runs through Blueprint, execution returns
+`status=executed` with `Executed_Task_ID` populated, `Execution_Status=Executed`,
+`Execution_Error` blank, `Execution_Attempts=1`, the Task is linked to Lead
+`6719186000003423001` and visible in its Open Activities, and a replay returns
+`duplicate`/`already_claimed` with the original Task id and creates no second Task.
+
+### 8. Next Action
+
+Deploy the corrected executor Deluge and set `Query = ${buildAiAnalysisRequest_8}` in the
+live Flow, then run the fresh live acceptance test below.
+
+## Fresh live acceptance test — 2026-07-24
+
+1. In the live Flow, set `Trigger agent execution` **Query = `${buildAiAnalysisRequest_8}`** and save.
+2. Deploy the corrected `execute_approved_recommendation` Deluge to its live custom function.
+3. Send a new fleet-pricing email with a unique subject.
+4. Verify the `Trigger agent execution` input contains the complete `message.body_text` and it exactly matches the inbound email body.
+5. Verify the email classifies as `quote_request` (or the repository's explicitly approved equivalent) with no unsupported product-setup claim.
+6. Verify the `AI_Recommendations` record is created as `Pending Review` with correct AI category, summary, rationale, confidence, safety, target, and reviewer guidance.
+7. Verify the Cliq review card shows the correct business-readable information and CRM links.
+8. Approve through Blueprint; verify the execution Flow runs.
+9. Verify `execute_approved_recommendation` returns `status=executed`, `Executed_Task_ID` populated, `Execution_Status=Executed`, `Execution_Error` blank, `Execution_Attempts=1`.
+10. Verify the Task is linked to Lead `6719186000003423001` and appears in that Lead's Open Activities.
+11. Replay the execution; verify no second Task is created and the result is `duplicate`/`already_claimed` with the original Task id.
+
+_Observed: **Pending** — not yet run._
 
 Landed on 2026-07-23:
 
@@ -298,6 +442,215 @@ either kind is retried automatically.
 `Execution_Attempts` counts *claimed* attempts and reaches at most 1 in this version;
 the `< 3` check is a defensive guard, not a description of three automatic attempts.
 Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
+
+## Done — no-match Lead creation (plan step 5b-ELSE), live-validated 2026-07-23
+
+Closes the last plan gap: an unknown sender (no Contact, Lead, or Account match) used to
+dead-end at `manual_review`. It now creates a Lead and flows through the normal
+Lead → Zia → recommendation path, producing an actionable `create_crm_task`.
+
+**Live proof (Test & Debug, 2026-07-23):** unknown sender
+`newprospect.test@northwind-example.com` →
+`ensure_crm_match` created Lead `6719186000003404001` (Last_Name `Prospect`, Company
+`Northwind Example Co` extracted from body, Lead_Source `Email`, Status `Not Contacted`,
+Owner Bill) → recommendation `6719186000003405001`: `create_crm_task`, `Target_Module`
+`Leads`, `Target_Record_ID` `6719186000003404001`, `Validation_Status` `valid`. Not
+`manual_review`. **These two records are test data — delete after review.**
+
+Decisions locked with the operator:
+
+- Unknown sender → create a **Lead only** (not Contact+Lead). Rationale: Lead and Contact
+  are two stages of the same person; creating both duplicates the record and produces a
+  second Contact on later conversion. Standard lifecycle is Lead → native **Convert** to
+  Contact when qualified. This intentionally deviates from the handwritten 5b-ELSE, which
+  said "create contact and lead".
+- Lead → Contact and Deal-creation **timing** are left as manual/human decisions
+  (native Convert; Deal deferred to QTS quote generation), pending Bill/Bryan preference.
+  Nothing about lifecycle timing is automated.
+- Owner: a single constant `lead_owner_id`, a one-line swap. **Set to Blake
+  (`6719186000002395001`) for TESTING so test Leads never land on Bill/Bryan.** Production
+  target is Bill/Bryan; owner-by-inbox routing (Bill vs Bryan by area) deferred to Step 9.
+- Lead Source: `Website` for form intake, `Email` for inbound (from `is_form_intake`).
+
+Code (deployed and live-validated):
+
+- `scripts/single_path/ensure_crm_match.deluge` — pass-through gate. If
+  `resolve_crm_match` already matched, returns it untouched; otherwise creates the Lead
+  and returns a Lead-match-shaped map with the same keys downstream reads. This shape lets
+  it drop into the single-path flow without adding a branch.
+- `tests/test_ingestion_artifacts.py` — `TestEnsureCrmMatch` added. Full suite 183 tests,
+  ruff clean.
+
+Wiring (live single-path flow, done 2026-07-23):
+
+1. Custom function `ensure_crm_match(map normalized, map resolve_result)` created.
+2. Placed immediately after `resolve_crm_match`; inputs = `${normalizeTeaminboxPayload_*}`
+   + `${resolveCrmMatch_3}` (whole maps, typed by hand — the leaf picker only exposes
+   parsed scalars).
+3. Re-pointed the two blocks that actually read `resolve_crm_match` — `fetch_open_related`
+   (`match`) and `build_crm_context` (`contact_id`/`lead_id`/`account_id`) — to
+   `ensureCrmMatch_26`. `associate_email_to_crm_record` needed **no** change: it reads
+   `build_crm_context` output, which already carries the resolved target.
+4. Test & Debug validated end-to-end (see live proof above).
+
+## Done — reviewer notification via Cliq (live-validated 2026-07-24)
+
+Started 2026-07-23. Closes the "first error if live as-is" gap: a recommendation reaches
+`Pending Review` but nothing tells a human to review it, so the human-approval step —
+which the whole system depends on — never gets triggered.
+
+Design: notify off the **record**, not the flow. A CRM workflow rule on
+`AI_Recommendations` (on create) calls a Deluge function that posts to a Cliq channel.
+This catches every recommendation from every path (engine, form, future flows) and
+touches the fragile ingestion flow zero times.
+
+- Channel: `ai-recs-test` (unique name `airecommendationstest`), **Blake-only for now** —
+  Bill/Bryan added once confirmed, to avoid spamming them during validation.
+- Cliq call confirmed by operator: `zoho.cliq.postToChannel("airecommendationstest", msg)`.
+- Code: `scripts/notify_cliq_new_recommendation.deluge` — reads the record, guards on
+  `Status == "Pending Review"`, posts action + target + validation + a CRM deep link.
+  Tests: `TestCliqNotification`. Full suite 189, ruff clean.
+
+Cliq facts (confirmed live 2026-07-23):
+
+- Channel `ai-recs-test`, unique name `airecommendationstest`, Channel ID
+  `O6165045000001641001`, Chat ID `CT_1424735400674246738_889992103`, Cliq company
+  `889992103`. Blake-only membership.
+- CRM connection for Cliq: link name **`blake_cliq_connection`** (created under CRM Setup →
+  Developer Space → Connections). `zoho.cliq.postToChannel` requires this connection as its
+  third argument — a bare call errors with "not allowed to be used without connection".
+- The code's Cliq call is:
+  `zoho.cliq.postToChannel("airecommendationstest",message_text,"blake_cliq_connection")`.
+
+**Phase 1 — function paste + live post (DONE 2026-07-23).** The CRM function editor
+accepted the full namespaced signature with the argument inline
+(`void salessignals.notify_cliq_new_recommendation(string recommendation_id)`); body-only
+was not required (the earlier `standalone`-category and `rec_id is not defined` errors were
+just a category/signature mismatch, gone once category `salessignals` and the full
+namespaced signature were used). The saved copy inlines the empty-check and drops the repo
+file's cosmetic `.trim()`; the repo keeps the portable plain
+`void notify_cliq_new_recommendation(...)` form and CRM adds the `salessignals.` namespace.
+First Execute returned `getRecordById` 200 but `postToChannel` **401**
+because `blake_cliq_connection` was not yet authorized. After re-authorizing the
+connection with a Cliq channel message-post scope, Execute against pending record
+`6719186000003401001` posted the formatted card to `ai-recs-test`. The live message
+layout was upgraded (section headers, `hexToText("0A")` newlines, empty-target fallbacks
+"Manual review" / "No CRM record matched"); the repo `.deluge` mirrors it while keeping
+the portable plain signature and test-pinned tokens.
+
+**Phase 2 — create-only Workflow Rule (DONE 2026-07-24).** A CRM Workflow Rule on module
+`AI Recommendations` was created: trigger = record action **Create**, condition =
+`Status is Pending Review`, instant action = the Automation-category function
+`notify_cliq_new_recommendation`, argument `recommendation_id` mapped to the
+`AI Recommendation Id` merge field. The first run **failed** because `recommendation_id`
+was initially mapped to `Idempotency_Key` (the `Name` display field), so `.toLong()`
+failed on a non-numeric value. Remapping to `AI Recommendation Id` fixed it; retrying the
+failed execution then posted the Cliq notification.
+
+**Phase 3 — end-to-end validation (DONE 2026-07-24).**
+
+- A fresh website submission created a new recommendation and auto-posted **exactly one**
+  Cliq notification with no manual Execute/Retry; the deep link opened the correct record.
+- Editing `Review_Notes` produced **no** second notification, confirming create-only
+  behavior (the edit-triggered executor rule is separate and did not fire this function).
+- Full lifecycle: a fresh website inquiry created Lead `6719186000003423001`;
+  recommendation `6719186000003415011` persisted as valid `create_crm_task` /
+  `Pending Review`; human approval moved it to `Approved`; the executor created Task
+  `6719186000003430001`. The recommendation finished `Execution_Status=Executed`,
+  `Execution_Attempts=1`, `Execution_Error` blank, `Executed_Task_ID=6719186000003430001`.
+  The Task was correctly related to Lead `6719186000003423001`; the Lead showed the
+  inbound website inquiry in Emails and exactly one open Task. Approval and execution
+  produced no additional Cliq notification.
+
+Deferred (unchanged): add Bill and Bryan to the channel and promote `ai-recs-test` to a
+production channel only after broader validation — until then it would spam them.
+
+### Cleanup / enhancement items discovered during validation (2026-07-24)
+
+These feed the next bounded enhancement (see `docs/next_enhancement_plan.md`):
+
+1. **Task Description shows literal `\n`.** `execute_approved_recommendation.deluge` builds
+   the Description with `"\n"` string literals, which Deluge does not interpret as
+   newlines, so the CRM Task shows literal backslash-n. Fix: use `hexToText("0A")` (the
+   same pattern the Cliq function uses). The Python spec `execution_policy.py` already
+   joins with real newlines, so this only closes a Deluge-vs-spec presentation gap.
+   Note: the Cliq card itself already posts correctly formatted; the same `\n`-literal and
+   raw-JSON hygiene should be swept across both surfaces. The Cliq card also needs
+   spacing/layout polish and should hide raw JSON fields from normal reviewers.
+2. **AI Recommendations module presentation.** Field labels, layout sections, and the
+   default list view need a user-facing cleanup pass (no API-name changes).
+3. **Outbound-response Lead lifecycle.** When a Kinetic Bridge user sends the first
+   outbound response to a Lead inquiry, `Lead_Status` should advance `Not Contacted` →
+   `Contacted`, idempotently, never moving later-stage Leads backward.
+
+Remaining T110 enhancements after notification (unchanged priority): thread preservation
+→ Lead→Contact "Convert" recommendation; owner-by-inbox routing (pending Bill/Bryan);
+email attachments; silent-failure alerting; reporting. Deferred by design: Deal creation
+via QTS quote. Security follow-up (deferred by operator until feature work done): rotate
+the exposed ingestion webhook zapikey.
+
+## Done — CC ingestion + duplicate-event idempotency (resolved 2026-07-24)
+
+A natural test email (`From blakeallard@blakeallard.com`, `To blake@kinetic-bridge.com`,
+`CC bms@kinetic-bridge.com`) surfaced two sequential problems in the TeamInbox → Flow
+trigger path. Both are now resolved; the webhook URL, CC routing, inbox conditions, and
+duplicate TeamInbox rules were each ruled out along the way and are **not** the cause.
+
+**Problem 1 — CC-only delivery did not reach Zoho Flow (rule-level).** The shared inbox
+was CC'd rather than the direct To recipient, and the outgoing-webhook rule did not fire.
+The cause was rule-level, not CC-eligibility: TeamInbox rules *do* fire on CC'd mail (a
+separate `TAG_BMS` rule tagged the same thread), there is only one shared inbox
+("Zoho Mail Intake"; the "Zoho Mail Shared Inbox Intake" breadcrumb is a display label for
+it), and the condition already matched. Resolved by consolidating to a **single active
+inbound rule** on `Inbox is Zoho Mail Intake` carrying **both** actions — apply the `@BMS`
+tag and the outgoing webhook to Zoho Flow — which removes any two-rule ordering/exclusivity
+dependency. The old separate webhook rule was disabled/removed. CC-only delivery now
+reaches Flow.
+
+**Problem 2 — duplicate `AI_Recommendations` from one email (idempotency-key
+granularity).** Once CC delivery worked, one email produced **two** completed Flow
+executions seconds apart and **two** CRM records. Deduction from the schema: a second
+record persisted *despite* the unique `Ingestion_Key` constraint, which is only possible
+if the two webhook payloads carried **different** `Ingestion_Key`s. The old key was
+`teaminbox:{portal_id}:{message_id}`, and TeamInbox issued **two different `messageId`s**
+for the one email (delivered to two inbox-associated recipients). The datastore
+idempotency layer behaved correctly — it was handed two genuinely different keys. Not a
+retry, not a race, not a guard bug.
+
+**Root cause.** `idempotency_key` was derived from TeamInbox's per-delivery `messageId`,
+so duplicate deliveries of the same email were treated as separate ingestion events.
+
+**Fix** (`scripts/normalize_teaminbox_payload.deluge:131-132`) — re-key on stable email
+identity instead of the per-delivery `messageId`:
+
+```text
+idempotency_key = "teaminbox:" + portal_id + ":" + from_email + ":" + sent_at_ms + ":" + ifnull(payload.get("subject"),"");
+normalized.put("idempotency_key",idempotency_key);
+```
+
+Both delivered copies of one email share the same sender, send timestamp, and subject, so
+both now produce an identical `Ingestion_Key`; the unique constraint blocks the second at
+persistence. The repo is synced with the live Zoho function. The key propagates unchanged
+downstream (`build_ai_analysis_request.deluge` → `validate_zia_analysis_response_tagged.deluge`
+→ `persist_recommendation.deluge`), so no other script changed.
+
+**Validation.**
+
+- Offline: `tests/test_ingestion_artifacts.py` gained `TestIngestionIdempotencyKey`
+  (+6 tests) proving two payloads differing only in `messageId` collapse to one key, that
+  differing sender/subject/send-timestamp each diverge, and that the Deluge no longer
+  references `message_id` in the key. Stale `teaminbox:{portal}:{messageId}` fixtures in
+  `tests/test_execution_policy.py` were updated to the new format. **206 unittest tests
+  passing, ruff clean.**
+- Live E2E confirmed: TeamInbox again generated duplicate webhook events for one email;
+  **both events produced an identical `idempotency_key`**; the first persist succeeded and
+  the second returned `DUPLICATE_DATA`, blocked by `Ingestion_Key` uniqueness — **exactly
+  one** `AI_Recommendations` record.
+
+**Status: resolved.** Residual to keep in mind (not a defect): the composite key depends on
+`sent_at_ms` being populated, and two genuinely distinct emails from the same sender with
+the same subject and send timestamp would collapse to one recommendation — an accepted
+narrow tradeoff versus the per-delivery `messageId`.
 
 ## Blockers
 

@@ -29,7 +29,7 @@ execution_status = ifnull(record.get("Execution_Status"),"").toString().trim();
 executed_task_id = ifnull(record.get("Executed_Task_ID"),"").toString().trim();
 existing_execution_key = ifnull(record.get("Execution_Key"),"").toString().trim();
 message_id = ifnull(record.get("Message_ID"),"").toString().trim();
-idempotency_key = ifnull(record.get("Name"),"").toString().trim();
+idempotency_key = ifnull(record.get("Ingestion_Key"),"").toString().trim();
 review_notes = ifnull(record.get("Review_Notes"),"").toString().trim();
 reviewed_at = ifnull(record.get("Reviewed_At"),"").toString().trim();
 reviewed_by_raw = record.get("Reviewed_By");
@@ -250,16 +250,17 @@ if(subject.length() > 255)
 {
 	subject = subject.subString(0,254);
 }
+new_line = hexToText("0A");
 description = "Created by the BI1-T110 approved-action executor.";
-description = description + "\n\nAI Recommendation record: " + record_id;
-description = description + "\nIdempotency key: " + idempotency_key;
-description = description + "\nSource message ID: " + message_id;
-description = description + "\nRecommendation type: " + allowed_recommendation_type;
-description = description + "\nTarget: " + target_module + " / " + target_record_id;
-description = description + "\nApproved by: " + reviewed_by;
-description = description + "\nApproved at: " + reviewed_at;
-description = description + "\n\nReviewer notes:\n" + review_notes;
-description = description + "\n\nThis Task was generated only from persisted, human-approved recommendation fields. The raw AI response was not interpreted and its instructions were not executed. Open the AI Recommendation record to read the original analysis.";
+description = description + new_line + new_line + "AI Recommendation record: " + record_id;
+description = description + new_line + "Idempotency key: " + idempotency_key;
+description = description + new_line + "Source message ID: " + message_id;
+description = description + new_line + "Recommendation type: " + allowed_recommendation_type;
+description = description + new_line + "Target: " + target_module + " / " + target_record_id;
+description = description + new_line + "Approved by: " + reviewed_by;
+description = description + new_line + "Approved at: " + reviewed_at;
+description = description + new_line + new_line + "Reviewer notes:" + new_line + review_notes;
+description = description + new_line + new_line + "This Task was generated only from persisted, human-approved recommendation fields. The raw AI response was not interpreted and its instructions were not executed. Open the AI Recommendation record to read the original analysis.";
 if(description.length() > 4000)
 {
 	description = description.subString(0,3999);
@@ -269,13 +270,15 @@ task.put("Subject",subject);
 task.put("Description",description);
 task.put("Status","Not Started");
 task.put("Priority","Normal");
+target_lookup = Map();
+target_lookup.put("id",target_record_id);
 if(target_module == "Contacts")
 {
-	task.put("Who_Id",target_record_id);
+	task.put("Who_Id",target_lookup);
 }
 else
 {
-	task.put("What_Id",target_record_id);
+	task.put("What_Id",target_lookup);
 }
 task.put("$se_module",target_module);
 task_response = zoho.crm.createRecord("Tasks",task);

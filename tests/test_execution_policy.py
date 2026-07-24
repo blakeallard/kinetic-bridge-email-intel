@@ -37,7 +37,8 @@ RECORD_ID = "6719186000003183001"
 
 APPROVED_RECORD: dict[str, Any] = {
     "id": RECORD_ID,
-    "Name": "teaminbox:901489292:1784333133430111003",
+    "Name": "AI Recommendation: Create CRM Task - Support Request",
+    "Ingestion_Key": "teaminbox:901489292:jane.doe@example.com:1784333133430111003:Contact question",
     "Message_ID": "1784333133430111003",
     "Status": "Approved",
     "Requires_Approval": True,
@@ -198,22 +199,35 @@ class TestHappyPath(unittest.TestCase):
         crm = FakeCrm(record())
         run(crm)
         task = crm.created_tasks[0]
-        self.assertEqual(task["Who_Id"], "6719186000002999004")
+        self.assertEqual(task["Who_Id"], {"id": "6719186000002999004"})
+        self.assertEqual(task["$se_module"], "Contacts")
         self.assertNotIn("What_Id", task)
 
     def test_non_contact_target_links_via_what_id_and_se_module(self):
         crm = FakeCrm(record(Target_Module="Leads", Target_Record_ID="6719186000003163012"))
         run(crm)
         task = crm.created_tasks[0]
-        self.assertEqual(task["What_Id"], "6719186000003163012")
+        self.assertEqual(task["What_Id"], {"id": "6719186000003163012"})
         self.assertEqual(task["$se_module"], "Leads")
         self.assertNotIn("Who_Id", task)
+
+    def test_lookup_fields_are_id_objects_not_bare_strings(self):
+        """Zoho Tasks Who_Id/What_Id are jsonobject lookups: {"id": ...}, never a string.
+
+        A bare string triggers "expected jsonobject but received string" and is the
+        confirmed cause of the failed live Lead Task creation.
+        """
+        for module in ALLOWED_TARGET_MODULES:
+            payload = build_task_payload(record(Target_Module=module), RECORD_ID)
+            link_value = payload[TASK_LINK_FIELD[module]]
+            self.assertEqual(link_value, {"id": "6719186000002999004"})
+            self.assertNotIsInstance(link_value, str)
 
     def test_se_module_is_always_set_for_every_allowed_target(self):
         for module in ALLOWED_TARGET_MODULES:
             payload = build_task_payload(record(Target_Module=module), RECORD_ID)
             self.assertEqual(payload["$se_module"], module)
-            self.assertEqual(payload[TASK_LINK_FIELD[module]], "6719186000002999004")
+            self.assertEqual(payload[TASK_LINK_FIELD[module]], {"id": "6719186000002999004"})
 
     def test_link_field_table_covers_exactly_the_allow_list(self):
         self.assertEqual(set(TASK_LINK_FIELD), set(ALLOWED_TARGET_MODULES))
@@ -650,7 +664,7 @@ class TestAdversarialRawResponse(unittest.TestCase):
     def test_target_is_taken_from_trusted_fields_only(self):
         crm = FakeCrm(record(Raw_Zia_Response=self.ADVERSARIAL))
         run(crm)
-        self.assertEqual(crm.created_tasks[0]["Who_Id"], "6719186000002999004")
+        self.assertEqual(crm.created_tasks[0]["Who_Id"], {"id": "6719186000002999004"})
 
     def test_control_characters_in_review_notes_are_stripped(self):
         crm = FakeCrm(record(Review_Notes="line one\x00\x07 injected\x1b[31m"))
@@ -675,7 +689,8 @@ class TestTaskPayloadProvenance(unittest.TestCase):
     def test_description_records_the_approval_trail(self):
         payload = build_task_payload(record(), RECORD_ID)
         for expected in (RECORD_ID, "1784333133430111003", "Blake Allard",
-                         "teaminbox:901489292:1784333133430111003", "create_crm_task"):
+                         "teaminbox:901489292:jane.doe@example.com:1784333133430111003:Contact question",
+                         "create_crm_task"):
             self.assertIn(expected, payload["Description"])
 
     def test_description_states_the_raw_response_was_not_interpreted(self):
@@ -685,6 +700,19 @@ class TestTaskPayloadProvenance(unittest.TestCase):
     def test_blank_review_notes_render_as_none(self):
         payload = build_task_payload(record(Review_Notes=None), RECORD_ID)
         self.assertIn("(none)", payload["Description"])
+
+    def test_idempotency_key_line_reads_ingestion_key_not_the_name_title(self):
+        """Name is now a human-readable title; the durable key lives in Ingestion_Key."""
+        payload = build_task_payload(
+            record(
+                Name="AI Recommendation: Create CRM Task - Support Request",
+                Ingestion_Key="teaminbox:abc:jane@example.com:999:Subject",
+            ),
+            RECORD_ID,
+        )
+        self.assertIn("Idempotency key: teaminbox:abc:jane@example.com:999:Subject",
+                      payload["Description"])
+        self.assertNotIn("Idempotency key: AI Recommendation:", payload["Description"])
 
 
 if __name__ == "__main__":

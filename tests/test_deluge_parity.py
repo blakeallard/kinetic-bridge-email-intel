@@ -215,5 +215,62 @@ class TestPostClaimFailureIsTerminal(unittest.TestCase):
         self.assertNotIn("Execution_Attempts", failure_block)
 
 
+class TestTaskLookupStructure(unittest.TestCase):
+    """Who_Id/What_Id are jsonobject lookups — the Deluge must pass {"id": ...}.
+
+    A bare id string produces "expected jsonobject but received string" and was the
+    confirmed cause of the failed live Lead Task creation. Verified against the live
+    Tasks field metadata (both fields json_type=jsonobject) and Zoho Kaizen #36.
+    """
+
+    def test_deluge_wraps_the_target_id_in_an_id_object(self):
+        self.assertIn('target_lookup = Map()', CODE)
+        self.assertIn('target_lookup.put("id",target_record_id)', CODE)
+
+    def test_deluge_never_assigns_a_bare_string_to_a_lookup_field(self):
+        self.assertNotIn('task.put("Who_Id",target_record_id)', CODE)
+        self.assertNotIn('task.put("What_Id",target_record_id)', CODE)
+
+    def test_deluge_links_contacts_via_who_id_and_others_via_what_id(self):
+        self.assertIn('task.put("Who_Id",target_lookup)', CODE)
+        self.assertIn('task.put("What_Id",target_lookup)', CODE)
+
+    def test_deluge_sets_se_module_for_every_route(self):
+        self.assertEqual(CODE.count('task.put("$se_module",target_module)'), 1)
+
+    def test_deluge_reads_the_durable_key_from_ingestion_key_not_the_name_title(self):
+        self.assertIn('idempotency_key = ifnull(record.get("Ingestion_Key")', CODE)
+        self.assertNotIn('idempotency_key = ifnull(record.get("Name")', CODE)
+
+
+class TestTaskDescriptionNewlines(unittest.TestCase):
+    """The Task Description must render real line breaks in CRM.
+
+    Deluge does not interpret a "\\n" string literal as a newline — it emits a
+    literal backslash-n. The Python spec joins the same lines with a real newline,
+    so the Deluge must build the Description with hexToText("0A") to match.
+    """
+
+    def test_deluge_uses_a_real_newline_character(self):
+        self.assertIn('new_line = hexToText("0A")', CODE)
+
+    def test_no_literal_backslash_n_survives_in_the_deluge(self):
+        self.assertNotIn("\\n", CODE, "a literal backslash-n would print as text in CRM")
+
+    def test_the_description_is_assembled_from_the_newline_variable(self):
+        self.assertIn(
+            'description = description + new_line + "Idempotency key: " + idempotency_key',
+            CODE,
+        )
+        self.assertIn(
+            '"Reviewer notes:" + new_line + review_notes',
+            CODE,
+        )
+
+    def test_the_python_spec_joins_description_lines_with_a_real_newline(self):
+        spec = (REPO / "scripts" / "execution_policy.py").read_text()
+        self.assertIn('"\\n".join(description_lines)', spec)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -305,7 +305,7 @@ def build_task_payload(record: dict[str, Any], record_id: str) -> dict[str, Any]
     target_record_id = field("Target_Record_ID")
     reviewed_by = field("Reviewed_By")
     reviewed_at = field("Reviewed_At")
-    idempotency_key = field("Name")
+    idempotency_key = field("Ingestion_Key")
     review_notes = sanitize(text_of(record.get("Review_Notes")), REVIEW_NOTES_MAX_LEN)
 
     subject = sanitize(
@@ -339,7 +339,7 @@ def build_task_payload(record: dict[str, Any], record_id: str) -> dict[str, Any]
         "Priority": "Normal",
     }
 
-    payload[TASK_LINK_FIELD[target_module]] = target_record_id
+    payload[TASK_LINK_FIELD[target_module]] = {"id": target_record_id}
     payload["$se_module"] = target_module
 
     return payload

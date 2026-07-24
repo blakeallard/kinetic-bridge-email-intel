@@ -339,13 +339,23 @@ them live proves the Deluge translation and the Zoho field semantics, which the 
 suite cannot. Tests 5, 6 and 9 have **no offline equivalent** — they test Zoho
 behaviour the tests can only assume.
 
+### Lookup value shape (corrected 2026-07-24)
+
+Separate from the routing question below: `Who_Id` and `What_Id` are `json_type:
+jsonobject` lookups (live Tasks metadata; Zoho Kaizen #36 examples), so the executor now
+passes `{"id": target_record_id}`, not a bare id string. A bare string produces
+`Who_Id expected jsonobject but received string`, which is the confirmed cause of the
+prior failed live **Lead** Task creation. This value-shape fix is verified offline only;
+Test 5 below must still confirm it live.
+
 ### Test 5 is a decision point, not a checkbox
 
-If the Task does **not** appear on the Lead, change `TASK_LINK_FIELD["Leads"]` from
-`What_Id` to `Who_Id` in `scripts/execution_policy.py`, mirror it in the Deluge, and
-re-run. The evidence is genuinely contradictory — the live Tasks metadata and Zoho's
-Kaizen #36 article support `What_Id`; the BI1-T110 brief expects `Who_Id`. Only this
-test resolves it.
+Test 5 settles the **routing** question (which lookup field a Lead uses), which is
+independent of the value-shape fix above. If the Task does **not** appear on the Lead,
+change `TASK_LINK_FIELD["Leads"]` from `What_Id` to `Who_Id` in
+`scripts/execution_policy.py`, mirror it in the Deluge, and re-run. The evidence is
+genuinely contradictory — the live Tasks metadata and Zoho's Kaizen #36 article support
+`What_Id`; the BI1-T110 brief expects `Who_Id`. Only this test resolves it.
 
 ### Test 9 is a decision point too
 
