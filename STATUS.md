@@ -20,7 +20,7 @@ Current source of truth:
 
 ## Current State
 
-Estimated completion against the full handwritten Steps 1–7: **~95%**.
+Estimated completion against the full handwritten Steps 1–7: **~99%**.
 The natural-email-to-approved-CRM-Task milestone is **complete and live-validated**. The
 single-path flow is now the live ingestion flow (ON); the 4-branch flow is retired (OFF).
 
@@ -39,7 +39,7 @@ Landed on 2026-07-23:
   read-then-write and could not stop two concurrent deliveries of the same message from
   creating two records. Independently confirmed via CRM read on 2026-07-23 — record
   `6719186000003380001` carries `Ingestion_Key = teaminbox:901489292:1784900000000119001`.
-  **This work is complete and passing (154 tests, ruff clean) but is NOT yet committed.**
+  Complete and passing (154 tests, ruff clean); committed as `90868e9`.
 
 Two significant pieces landed on 2026-07-22:
 
@@ -154,6 +154,32 @@ Two significant pieces landed on 2026-07-22:
 - The execution Flow trigger is now filtered by `Status=Approved AND
   Execution_Status=Not Started`, preventing the executor's own bookkeeping updates
   from qualifying as new executions.
+- **Concurrency acceptance test passed live (2026-07-23).** Approving recommendation
+  `6719186000003380001` produced **two** Zoho Flow invocations in the 5:00–5:02 PM
+  window — one completed, one filtered — and the target Lead `6719186000003163012`
+  received **exactly one** Task (`6719186000003388001`), with
+  `Execution_Status=Executed` and `Execution_Attempts=1`. The second invocation is the
+  executor's own claim write re-firing the module-edit webhook while the first run was
+  still in flight. Caveat: the overlap was rejected by the **Flow trigger filter**
+  (`Status=Approved AND Execution_Status=Not Started`), so the Deluge
+  `If-Unmodified-Since` conditional claim was not itself exercised against live Zoho.
+  Defense in depth holds; only the outer layer is live-proven. The inner layer remains
+  covered offline by the two-caller test in the suite.
+- **Blueprint inspection answered by UI (requirement 17, 2026-07-23).** The
+  `AI Recommendation Review` blueprint diagram shows `Pending Review` →
+  `Approve Recommendation` / `Reject Recommendation` → `Approved` / `Rejected`, with
+  both end states **terminal**. There is no `Approved → Executed` transition, so none
+  can be invoked. The current design is correct: `Execution_Status` stays the execution
+  source of truth and the executor does not touch the Blueprint-controlled `Status`
+  field. This closes requirement 17 without the OAuth credentials.
+- **Execution trigger is a Zoho Flow webhook, not a CRM function.** CRM Setup →
+  Functions is empty; execution is driven by the read-only, Zoho Flow-managed workflow
+  rule `AI_Recommendations_ZohoFlow_Execute Approved AI Recommendation` on
+  `AI Recommendations`, which fires an instant webhook on **every edit of every record**
+  with no rule-level condition. Gating happens downstream in the Flow trigger filter and
+  again in the executor's own policy checks. Verified 2026-07-23: saving an unrelated
+  field edit on a `Pending Review` record left `Execution_Status = Not Started`, i.e. the
+  Flow filter turned it away before the executor ran.
 - Ingestion idempotency is now datastore-enforced (2026-07-23). The unique
   `Ingestion_Key` field is live; a fresh message (`teaminbox:901489292:1784900000000119001`)
   persisted once as record `6719186000003380001` (`persisted=true`), and a manual
@@ -226,8 +252,9 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
 
 1. **No Zoho OAuth credentials in the local working environment.** `ZOHO_CRM_CLIENT_ID`,
    `ZOHO_CRM_CLIENT_SECRET`, and `ZOHO_CRM_REFRESH_TOKEN` are unset, so
-   `scripts/zoho_crm_admin.py` has never run against Zoho. This blocks the Blueprint
-   inspection below.
+   `scripts/zoho_crm_admin.py` has never run against Zoho. This no longer blocks any
+   outstanding item — the Blueprint question was answered through the CRM UI on
+   2026-07-23 — but it still prevents scripted deploys and field setup.
 
    Note the distinction: an authenticated **read-only MCP path** to Zoho CRM does exist
    and has been used throughout for record and metadata verification. It cannot deploy
@@ -235,23 +262,18 @@ Manual repair procedure is in `docs/execute_approved_recommendation_flow.md`.
 
 ## Remaining work
 
-Three items. Nothing else is outstanding.
+All three previously outstanding items are closed as of 2026-07-23.
 
-1. **Commit the `Ingestion_Key` work.** 8 modified files, 154 tests passing, ruff clean.
-   Complete and live-validated; held only pending operator approval to commit.
-2. **Concurrency acceptance test.** Two concurrent approvals of one recommendation,
-   proving exactly one CRM Task is created. Operator-only: it needs two overlapping
-   executions of the live Flow, which neither the MCP path nor the local test suite can
-   produce. This is the last unverified assumption in the execution stage — the
-   `If-Unmodified-Since` conditional claim is proven offline but not against live Zoho.
-3. **Blueprint inspection (requirement 17).** Determine whether an API-invocable
-   `Approved → Executed` transition exists. Until proven, `Execution_Status` remains the
-   execution source of truth and the executor does not touch the Blueprint-controlled
-   `Status` field. Requires the OAuth credentials above; no MCP tool exposes the CRM
-   Blueprint transitions API (verified 2026-07-23).
-
-Step-by-step operator instructions for items 2 and 3 are in
-`docs/execute_approved_recommendation_flow.md`.
+1. ~~Commit the `Ingestion_Key` work.~~ Committed as `90868e9`.
+2. ~~Concurrency acceptance test.~~ Passed live — two overlapping Flow invocations,
+   exactly one Task. See "Verified live in Zoho". One residual caveat, not a blocker:
+   the live overlap was rejected by the Flow trigger filter, so the Deluge
+   `If-Unmodified-Since` claim is still only proven offline. Exercising it live would
+   require temporarily relaxing the Flow trigger filter — a change to live Zoho
+   configuration, and therefore out of scope without explicit approval.
+3. ~~Blueprint inspection (requirement 17).~~ Answered via the Blueprint diagram: no
+   `Approved → Executed` transition exists; both end states are terminal. The OAuth
+   credentials are no longer needed for this question.
 
 Done and requiring no further action: the single-path flow is the live ingestion flow
 (4-branch OFF, single-path ON), confirmed against the live Zoho canvas; ingestion
