@@ -537,5 +537,5 @@ sample record must be one currently sitting in an `Approved` Blueprint state.
 
 ### After both steps
 
-Update `STATUS.md` and `docs/CURRENT_HANDOFF.md` with the results, then BI1-T110 has no
+Update `STATUS.md` with the results, then BI1-T110 has no
 remaining verification work.

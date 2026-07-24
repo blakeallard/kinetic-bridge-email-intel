@@ -12,12 +12,12 @@ Zoho Task ID: 2543412000001583003
 2. `TASK.md`
 3. `STATUS.md`
 4. Review `AGENTS.md`, `CLAUDE.md`, and `CODEX.md` and understand the repository structure.
-5. Read `docs/CURRENT_HANDOFF.md` and relevant source, scripts, tests, logs, and artifacts.
+5. Read relevant source, scripts, tests, logs, and artifacts.
 
 ## Source of Truth Rules
 
 - Treat `TASK.md` as the imported task snapshot and baseline scope.
-- Treat `docs/CURRENT_HANDOFF.md` as the current execution log and next-step guide.
+- Treat `STATUS.md` as the canonical current-state, execution log, and next-step guide.
 - Use repository evidence before assumptions; confirm behavior from source, tests, logs, or validated outputs.
 - Record assumptions explicitly when the repository does not yet prove them.
 
@@ -36,12 +36,11 @@ Zoho Task ID: 2543412000001583003
 ## Validation Expectations
 
 - Run the existing project validators, tests, dry-runs, or syntax checks before stopping.
-- Record the exact validation commands and outcome in `docs/CURRENT_HANDOFF.md` or the pull request.
+- Record the exact validation commands and outcome in `STATUS.md` or the pull request.
 - If no automated validator exists, say so explicitly and note the manual verification performed.
 
 ## Handoff Behavior
 
 - Update `STATUS.md` after meaningful changes so progress, completed work, blockers, and next actions remain current.
-- Update `docs/CURRENT_HANDOFF.md` at the end of meaningful work.
 - Preserve chronological round history; append or prepend new rounds without deleting prior context.
 - Call out completed work, blockers, unresolved risks, uncommitted state, and the single recommended next task.

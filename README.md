@@ -23,11 +23,10 @@ Implement the approved AI-powered customer communication intelligence architectu
 1. Read `TASK.md` for the imported task scope, metadata, and boundaries.
 2. Read `STATUS.md` for progress, blockers, and next actions.
 3. Read `AGENTS.md`, `CLAUDE.md`, and `CODEX.md` for agent workflow and validation rules.
-4. Read `docs/CURRENT_HANDOFF.md` for the active state of the repo before changing files.
 
 Current ingestion references:
 
-- `docs/teaminbox_flow_complete_breakdown.md`: plain-language and technical walkthrough.
+- `docs/single_path_refactor_spec.md`: the live single-path flow architecture.
 - `docs/zoho_flow_inventory.md`: deployed block order, mappings, and known gaps.
 - `samples/teaminbox_test_payloads.json`: sanitized Contact, Lead, Account, no-match,
   duplicate-replay, and non-processing webhook tests.
@@ -40,7 +39,6 @@ No task-specific runtime or dependencies are defined at bootstrap. Add setup com
 - `STATUS.md`: current progress, completed items, blockers, and next actions
 - `AGENTS.md`: shared execution rules for coding agents working in this repo
 - `CLAUDE.md` / `CODEX.md`: tool-specific execution expectations
-- `docs/CURRENT_HANDOFF.md`: current state, round history, blockers, and next step
 - `docs/`: documentation and deliverables
 - `samples/`: sanitized reusable test inputs
 - `scripts/`: task-specific implementation

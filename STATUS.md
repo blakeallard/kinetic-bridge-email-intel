@@ -189,9 +189,8 @@ Two significant pieces landed on 2026-07-22:
 
 - **Completion-polling + safe-timeout on all four routes.** Every route of the live
   4-branch flow now runs `is_zia_analysis_complete` → bounded retry → explicit
-  `build_zia_timeout_fallback`, so no route validates an incomplete Zia response. Every
-  block mapping is recorded in `docs/zoho_flow_variable_map.md`; the pattern is in
-  `docs/zia_completion_polling_pattern.md`.
+  `build_zia_timeout_fallback`, so no route validates an incomplete Zia response. The
+  current block mappings are recorded in `docs/zoho_flow_inventory.md`.
 - **Single-path flow built, validated, and cut over to live.** A consolidated one-path
   equivalent (~26 blocks vs ~80) was built and proven via Postman webhooks across all
   four match routes, the three gate skips, dedup, association, valid + fallback persist,

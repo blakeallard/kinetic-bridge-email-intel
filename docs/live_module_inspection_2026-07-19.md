@@ -208,9 +208,9 @@ only (`Message_ID`, `Target_*`, `Recommendation_Type`, `Review_Notes`, `Reviewed
 Rationale, intent, and confidence are **not** available to the Task because they are
 not persisted in structured fields.
 
-### 4. `docs/ai_recommendations_module_spec.md` describes a module that does not exist
+### 4. The original module design spec described a module that does not exist
 
-The spec predates the build and names ~20 fields absent from the live module
+The superseded design spec predated the build and named ~20 fields absent from the live module
 (`Idempotency_Key`, `Confidence_Band`, `Rationale`, `Intent_*`, `Opportunity_Signals`,
 `Lifecycle_*`, `Conflicts`, `Schema_Version`, `Source`, `Human_Approval_Required`,
 `Closed_Won_Change_Requested`, `Quote_Generation_Requested`,
