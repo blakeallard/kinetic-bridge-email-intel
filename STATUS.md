@@ -187,6 +187,57 @@ Two significant pieces landed on 2026-07-22:
   with "Duplicate values are not allowed." The updated `persist_recommendation` function
   is deployed in the live single-path Flow.
 
+### Full live audit — 2026-07-23 (evidence of record)
+
+This section is the **source of truth for execution correctness**. It was produced by
+direct COQL queries against live Zoho CRM, not by trusting earlier entries in this file.
+The underlying test records were scheduled for deletion immediately afterward, so these
+results are not reproducible from CRM; this record replaces them.
+
+**Execution integrity — 7 executed recommendations, 7 Tasks, exact 1:1.**
+
+| Recommendation | Task | Target | Attempts | Error |
+| --- | --- | --- | --- | --- |
+| `6719186000003380001` | `6719186000003388001` | Lead `6719186000003163012` | 1 | none |
+| `6719186000003364001` | `6719186000003368001` | Lead `6719186000003163012` | 1 | none |
+| `6719186000003302001` | `6719186000003237002` | Contact `6719186000003265001` | 1 | none |
+| `6719186000003250001` | `6719186000003293001` | Account `6719186000002999003` | 1 | none |
+| `6719186000003247001` | `6719186000003287001` | Lead `6719186000003163012` | 1 | none |
+| `6719186000003249008` | `6719186000003239002` | Contact `6719186000003265001` | 1 | none |
+| `6719186000003183001` | `6719186000003200001` | Contact `6719186000002999004` | 1 | none |
+
+Across all 37 recommendations in the module:
+
+- **Zero duplicate Tasks.** Every Task `Subject` was unique; no message executed twice.
+- **Zero orphans.** No Task lacked a matching `Executed_Task_ID`; no `Executed_Task_ID`
+  pointed at a non-existent Task.
+- **`Execution_Attempts` was 1 on every executed record** — never 2, never 3.
+- **`Execution_Error` was null on every record.** No execution has ever failed.
+- **Related-record linkage was correct in every case:** Contacts in `Who_Id`, Leads and
+  Accounts in `What_Id`, matching `execute_approved_recommendation.deluge` lines 272-279.
+
+**Live schema confirmed:**
+
+- `Execution_Key` — unique, case-insensitive.
+- `Ingestion_Key` — unique, case-insensitive (deployed 2026-07-23 as designed).
+- `Target_Module` picklist: `Contacts`, `Leads`, `Deals`, `Accounts`.
+- `Execution_Status` picklist: `Not Started`, `In Progress`, `Executed`, `Failed`,
+  `Blocked` — covering every value the executor writes.
+
+**Offline at the same commit:** 154 tests passing, ruff clean, all Python compiling.
+
+**Two known state-representation quirks, both harmless:**
+
+1. Six pre-2026-07-21 records carry `Execution_Status = null` rather than `Not Started`.
+   The executor treats `""` as claimable (line 102), so both represent the same state.
+2. `Target_Module` offers `Deals`, but the executor rejects it (line 94,
+   `target_module_not_allowed`). This narrowing is deliberate — Deals execution was never
+   in scope — but the picklist does not advertise the restriction.
+
+`Ingestion_Key` was null on 36 of 37 records. This is expected, not a defect: the field
+went live 2026-07-23, so datastore-enforced ingestion idempotency applies to messages
+ingested from that date forward. Zoho permits multiple nulls in a unique field.
+
 ### Implemented locally
 
 - `scripts/associate_email_to_crm_record.deluge` — reusable matched-record email
