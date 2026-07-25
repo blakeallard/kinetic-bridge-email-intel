@@ -1,0 +1,115 @@
+map create_lead_for_unmatched(map normalized)
+{
+result = Map();
+safe_email = ifnull(normalized.get("from_email"),"").trim().toLowerCase();
+sender_name = ifnull(normalized.get("from_name"),"").trim();
+from_domain = ifnull(normalized.get("from_domain"),"").trim().toLowerCase();
+body_html = ifnull(normalized.get("body_html"),"").toString();
+is_form_intake = ifnull(normalized.get("is_form_intake"),false);
+lead_owner_id = "6719186000000503001";
+first_name = "";
+last_name = "";
+if(sender_name != "")
+{
+	name_parts = sender_name.toList(" ");
+	if(name_parts.size() >= 2)
+	{
+		first_name = name_parts.get(0).trim();
+		last_name = sender_name.subString(first_name.length(),sender_name.length()).trim();
+	}
+	else
+	{
+		last_name = sender_name;
+	}
+}
+if(last_name == "")
+{
+	email_local = safe_email;
+	local_parts = safe_email.toList("@");
+	if(local_parts.size() == 2)
+	{
+		email_local = local_parts.get(0);
+	}
+	last_name = email_local;
+}
+if(last_name == "")
+{
+	last_name = "Unknown";
+}
+company_name = "";
+body_text = body_html.replaceAll("<[^>]*>"," ").replaceAll("&nbsp;"," ");
+company_index = body_text.indexOf("Company:");
+if(company_index >= 0)
+{
+	company_tail = body_text.subString(company_index + 8,body_text.length()).trim();
+	company_lines = company_tail.toList("\n");
+	if(company_lines.size() > 0)
+	{
+		company_name = company_lines.get(0).trim();
+	}
+	if(company_name.indexOf("Email:") >= 0)
+	{
+		company_name = company_name.subString(0,company_name.indexOf("Email:")).trim();
+	}
+}
+if(company_name == "")
+{
+	company_name = "Unknown";
+}
+lead_source = "Email";
+if(is_form_intake == true)
+{
+	lead_source = "Website";
+}
+lead_id = "";
+created = false;
+if(safe_email != "")
+{
+	lead_map = Map();
+	lead_map.put("Last_Name",last_name);
+	if(first_name != "")
+	{
+		lead_map.put("First_Name",first_name);
+	}
+	lead_map.put("Company",company_name);
+	lead_map.put("Email",safe_email);
+	lead_map.put("Lead_Source",lead_source);
+	lead_map.put("Lead_Status","Not Contacted");
+	owner_map = Map();
+	owner_map.put("id",lead_owner_id);
+	lead_map.put("Owner",owner_map);
+	create_response = zoho.crm.createRecord("Leads",lead_map,Map(),"zoho_crm_to_zoho_flow");
+	if(create_response != null)
+	{
+		new_id = ifnull(create_response.get("id"),"").toString();
+		if(new_id != "")
+		{
+			lead_id = new_id;
+			created = true;
+		}
+	}
+}
+match_status = "no_match";
+match_type = "none";
+matched_module = "";
+matched_record_id = "";
+if(lead_id != "")
+{
+	match_status = "matched";
+	match_type = "lead";
+	matched_module = "Leads";
+	matched_record_id = lead_id;
+}
+result.put("created",created);
+result.put("lead_id",lead_id);
+result.put("lead_source",lead_source);
+result.put("last_name",last_name);
+result.put("company",company_name);
+result.put("match_status",match_status);
+result.put("match_type",match_type);
+result.put("matched_module",matched_module);
+result.put("matched_record_id",matched_record_id);
+result.put("contact_id","");
+result.put("account_id","");
+return result;
+}

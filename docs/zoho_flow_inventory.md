@@ -24,6 +24,8 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 | `TeamInbox to CRM Payload Test` | **LIVE and ON**; all four routes carry completion-check + bounded retry + safe-timeout (2026-07-22) | Ingestion (4-branch): webhook → normalize → dedup → CRM match → context → Zia poll → validate → persist |
 | Single-path ingestion flow | **BUILT and validated end-to-end (2026-07-22)** | Consolidated one-path equivalent of the 4-branch flow; see `docs/single_path_refactor_spec.md` |
 | `Execute Approved AI Recommendation` | **LIVE and ON** | Approved-action execution; verified creating a CRM Task from an abstracted-flow record on 2026-07-22. See `execute_approved_recommendation_flow.md` |
+| `KB Website Form to AI Recommendation` | **LIVE and ON** (2026-07-23) | Form relay: `KB_Website_Form` submission → `build_form_intake_payload` builds a TeamInbox-shaped payload → Send Webhook POSTs it into the ingestion engine's webhook. Does no AI work itself; it feeds `TeamInbox to CRM Payload`. Verified one submission → exactly one recommendation (records `6719186000003399001`, `6719186000003401001`, `6719186000003358008`; 2026-07-23). |
+| `Quote Intake` | **OUT OF SCOPE; toggled OFF 2026-07-23** | Not part of BI1-T110. Older flow: `KB_Website_Form` → allocate quote number via `kinetic-quote.replit.app/api/allocate-number` → append Zoho Sheet ledger row → create a `Proposal/Price Quote` Deal. Shares the form trigger with T110, so it was turned OFF to stop polluting T110 test data with quote Deals. Re-enable only when the QTS application is live. Deal `Account Name` mapping was corrected from `${trigger.SingleLine1}` (empty → "required field not found") to `${trigger.SingleLine}` on 2026-07-23. |
 
 ## Custom functions
 
@@ -45,6 +47,7 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 | `is_zia_analysis_complete` | `(string status_value, string response_value)` → map | LIVE / REPO | `scripts/is_zia_analysis_complete.deluge` |
 | `build_zia_timeout_fallback` | `(map trusted_request)` → map | LIVE / REPO | `scripts/build_zia_timeout_fallback.deluge` |
 | `execute_approved_recommendation` | `(string ai_recommendation_record_id)` → map | LIVE / REPO | `scripts/execute_approved_recommendation.deluge` |
+| `build_form_intake_payload` | `(string form_id, string submitter_email, string first_name, string last_name, string company, string phone, string area_of_interest, string comments, string submitted_at_ms, string intake_address)` → map | LIVE / REPO | `scripts/build_form_intake_payload.deluge` |
 
 ### Single-path refactor functions (`scripts/single_path/`)
 

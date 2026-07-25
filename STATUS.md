@@ -26,7 +26,7 @@ single-path flow is now the live ingestion flow (ON); the 4-branch flow is retir
 
 The ingestion path is live through persistence, human approval, and the approved-action
 execution Flow, which is deployed and ON. Cliq recommendation notifications are working
-and Blueprint approval has been proven to run. **Two live defects are open (see the
+and Blueprint approval has been proven to run. **Three live defects are open (see the
 2026-07-24 audit below) and the full acceptance matrix has not yet passed, so the project
 is NOT done:** (1) the live `Trigger agent execution` block had a blank Query, so the
 fleet-pricing email reached Zia with no analysis request and was misclassified; (2) the
@@ -73,7 +73,7 @@ Landed on 2026-07-24 (repo only — **not yet deployed to live Zoho**):
 
 ### 1. Current State
 
-Two live defects were diagnosed and one repository fix landed (repo only — **not yet
+Three live defects were diagnosed and repository fixes landed (repo only — **not yet
 deployed to live Zoho**). Offline suite: **217 tests pass**, `ruff` clean,
 `git diff --check` clean. The project is **NOT done**: the fresh live acceptance matrix
 below has not run.
@@ -90,7 +90,26 @@ below has not run.
   it proves nothing about classification quality.
 - A prior approved **Lead** recommendation failed Task creation with
   `Who_Id expected jsonobject but received string`.
+- **Lead Task routing resolved by live evidence (2026-07-24).** An approved Lead
+  recommendation (`6719186000003573001`, target Lead `6719186000003570001`) executed and
+  failed with `INVALID_DATA` at `$.data[0].Who_Id.id`. Live `getFields` on Tasks shows
+  `Who_Id`'s lookup module is **Contacts only**; `What_Id` is `$se_module`-driven. So a
+  Lead cannot go in `Who_Id` — it must use `What_Id` + `$se_module = "Leads"`, which is
+  what the repo already encodes (`TASK_LINK_FIELD["Leads"] = "What_Id"`). The failing run
+  came from a **stale/hand-edited deployed function routing Leads into `Who_Id`**; the repo
+  is correct. Fix = redeploy the repo executor verbatim. This settles the flow doc's
+  "Test 5" routing question against the BI1-T110 brief's `Who_Id` expectation.
 - Cliq recommendation notifications are working. Blueprint approval has been proven to run.
+- **Ingestion crashed on Lead-matched emails** in `fetch_open_related` with
+  `Data type of the argument of the function 'get' did not match the required data type of
+  '[BIGINT]' at line number 58` (live log 2026-07-24 17:02, input `match.lead_id =
+  6719186000003570001`). Root cause: `zoho.crm.getRelatedRecords("Tasks","Leads",…)`
+  returns a No-Content/empty response (not a list of maps) whenever the Lead has no
+  related Tasks, and the unguarded `for each … get("Status")` treated the empty result as
+  a list of records. A Lead created by `create_lead_for_unmatched` always has zero related
+  Tasks, so every Lead-matched email hit this. Confirmed live: the Tasks related list for
+  `6719186000003570001` is empty. This aborted the snapshot build, so the recommendation
+  was never produced/converted.
 
 ### 3. Repository Changes Made
 
@@ -107,6 +126,14 @@ below has not run.
   lookup assertions to the `{"id": ...}` object shape and added focused tests: lookup
   fields are id-objects not strings, the Deluge wraps the id and never assigns a bare
   string to a lookup, and the description reads `Ingestion_Key` not the `Name` title.
+
+- **`scripts/single_path/fetch_open_related.deluge`** — each related-records fetch (contact
+  deals/cases/tasks and lead tasks) is now guarded with a `!= null && size() > 0` check and
+  wrapped in try/catch, so an empty or non-list `getRelatedRecords` response degrades to "no
+  open items" instead of throwing. This unblocks ingestion for Lead-matched emails, whose
+  freshly-created Leads always have zero related Tasks. Repo only — **not yet deployed to
+  live Zoho**. The identical latent pattern in `scripts/fetch_open_tasks_for_lead.deluge` and
+  `scripts/fetch_open_tasks_for_contact.deluge` is not yet guarded (twin bug, unverified live).
 
 The **blank Query** defect is a **live Flow configuration fix**, not a code change — the
 repository already specifies `Query = ${request}` (single-path spec block 12). No code

@@ -61,7 +61,42 @@ if(date_data.get("receivedTime") != null)
 {
 	received_at_ms = date_data.get("receivedTime").toString();
 }
-from_email = ifnull(from_data.get("fromAddress"),"").trim().toLowerCase();
+envelope_email = ifnull(from_data.get("fromAddress"),"").trim().toLowerCase();
+body_html = ifnull(content_data.get("mailContent"),"").toString();
+form_intake_relays = List();
+form_intake_relays.add("blake@kinetic-bridge.com");
+form_intake_relays.add("info@bevco-tech.com");
+is_relay_sender = form_intake_relays.contains(envelope_email);
+form_sender_email = "";
+if(is_relay_sender)
+{
+	body_text = body_html.replaceAll("<[^>]*>"," ");
+	body_text = body_text.replaceAll("&nbsp;"," ");
+	marker_index = body_text.indexOf("Email:");
+	if(marker_index >= 0)
+	{
+		tail = body_text.subString(marker_index + 6,body_text.length()).trim();
+		tail_tokens = tail.toList(" ");
+		if(tail_tokens.size() > 0)
+		{
+			candidate = tail_tokens.get(0).trim().toLowerCase();
+			candidate = candidate.replaceAll("^mailto:","");
+			candidate_parts = candidate.toList("@");
+			if(candidate_parts.size() == 2 && candidate_parts.get(1).contains("."))
+			{
+				form_sender_email = candidate;
+			}
+		}
+	}
+}
+is_form_intake = form_sender_email != "";
+relay_email = "";
+from_email = envelope_email;
+if(is_form_intake)
+{
+	relay_email = envelope_email;
+	from_email = form_sender_email;
+}
 from_domain = "";
 email_parts = from_email.toList("@");
 if(email_parts.size() == 2)
@@ -93,7 +128,8 @@ normalized.put("portal_id",portal_id);
 normalized.put("event_id",event_id);
 normalized.put("event_name",event_name);
 normalized.put("message_id",message_id);
-normalized.put("idempotency_key","teaminbox:" + portal_id + ":" + message_id);
+idempotency_key = "teaminbox:" + portal_id + ":" + from_email + ":" + sent_at_ms + ":" + ifnull(payload.get("subject"),"");
+normalized.put("idempotency_key",idempotency_key);
 normalized.put("from_name",ifnull(from_data.get("senderName"),""));
 normalized.put("from_email",from_email);
 normalized.put("to_email",to_email);
@@ -108,5 +144,8 @@ normalized.put("should_process",should_process);
 normalized.put("skip_reason",skip_reason);
 normalized.put("from_domain",from_domain);
 normalized.put("is_internal_sender",is_internal_sender);
+normalized.put("is_form_intake",is_form_intake);
+normalized.put("relay_email",relay_email);
+normalized.put("envelope_email",envelope_email);
 return normalized;
 }

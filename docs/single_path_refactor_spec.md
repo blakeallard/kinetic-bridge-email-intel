@@ -129,20 +129,39 @@ Reused unchanged: `normalize_teaminbox_payload`, `check_ai_recommendation_exists
 
 | AI_Recommendations field (API name) | Source |
 | --- | --- |
-| `Name` (Idempotency_Key) | `validated.idempotency_key` |
+| `Name` (display title) | `"AI Recommendation: "` + title-cased action + `" - "` + title-cased `intent.category` |
 | `Ingestion_Key` (unique) | `validated.idempotency_key` |
 | `Message_ID` | `validated.message_id` |
 | `Target_Module` | `validated.recommendation.target_module` |
 | `Target_Record_ID` | `validated.recommendation.target_record_id` |
-| `Recommendation_Type` | `validated.recommendation.action` |
+| `Recommendation_Type` | `validated.recommendation.action` (raw slug, unchanged) |
 | `Requires_Approval` | `validated.safety.human_approval_required` |
+| `AI_Category` | title-cased `validated.intent.category` |
+| `AI_Summary` | `validated.intent.summary` |
+| `AI_Rationale` | `validated.recommendation.rationale` |
+| `Safety_Summary` (multi-select) | list derived from `validated.safety` flags + `conflicts` |
 | `Validated_Analysis_JSON` | `validated` (whole map) |
 | `Raw_Zia_Response` | `validated.raw_zia_response` |
-| `Review_Notes` | `validated.recommendation.review_notes` |
+| `Review_Notes` | `"Recommended Action: <action>" + LF + "Reason: " + review_notes` |
 | `Status` | constant `Pending Review` |
 | `Created_By_AI` | constant `true` |
 | `Validation_Status` | `validated.validation_status` (`valid`/`fallback`) |
 | `Execution_Status` | constant `Not Started` |
+
+`Safety_Summary` value derivation (all five values must exist on the live picklist):
+
+| Value | Emitted when |
+| --- | --- |
+| `Human Approval Required` | `safety.human_approval_required` is true (validator always sets it) |
+| `Closed Won Change Requested` | `safety.closed_won_change_requested` is true |
+| `Quote Generation Requested` | `safety.quote_generation_requested` is true |
+| `Insufficient Context` | `safety.contains_insufficient_context` is true |
+| `Conflict Detected` | `safety.conflicts` is non-empty |
+
+**`Name` is no longer the idempotency key.** Idempotency is carried solely by the unique
+`Ingestion_Key`. The Flow-level fast-path guard `check_ai_recommendation_exists` was
+repointed to search `(Ingestion_Key:equals:<key>)` so it keeps matching replays before
+Zia runs.
 
 ## Wins
 

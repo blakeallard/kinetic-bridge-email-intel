@@ -1,0 +1,35 @@
+void notify_cliq_new_recommendation(string recommendation_id)
+{
+rec_id = ifnull(recommendation_id,"").trim();
+if(rec_id == "")
+{
+	return;
+}
+record = zoho.crm.getRecordById("AI_Recommendations",rec_id.toLong());
+if(record == null)
+{
+	return;
+}
+status = ifnull(record.get("Status"),"").toString();
+if(status != "Pending Review")
+{
+	return;
+}
+rec_type = ifnull(record.get("Recommendation_Type"),"Not specified").toString();
+target_module = ifnull(record.get("Target_Module"),"").toString();
+target_record = ifnull(record.get("Target_Record_ID"),"").toString();
+message_ref = ifnull(record.get("Message_ID"),"Not available").toString();
+validation_status = ifnull(record.get("Validation_Status"),"Not available").toString();
+if(target_module.trim() == "")
+{
+	target_module = "Manual review";
+}
+if(target_record.trim() == "")
+{
+	target_record = "No CRM record matched";
+}
+record_url = "https://crm.zoho.com/crm/org883125891/tab/CustomModule1/" + rec_id;
+new_line = hexToText("0A");
+message_text = "*NEW AI RECOMMENDATION*" + new_line + "*Review required before execution*" + new_line + new_line + "*STATUS*" + new_line + "Pending Review" + new_line + new_line + "*RECOMMENDED ACTION*" + new_line + rec_type + new_line + new_line + "*CRM TARGET*" + new_line + "Module: " + target_module + new_line + "Record ID: " + target_record + new_line + new_line + "*VALIDATION*" + new_line + validation_status + new_line + new_line + "*SOURCE MESSAGE*" + new_line + message_ref + new_line + new_line + "*OPEN RECOMMENDATION IN CRM*" + new_line + record_url;
+response = zoho.cliq.postToChannel("airecommendationstest",message_text,"blake_cliq_connection");
+}

@@ -3,14 +3,82 @@ map persist_recommendation(map validated)
 result = Map();
 recommendation = ifnull(validated.get("recommendation"),Map());
 safety = ifnull(validated.get("safety"),Map());
+intent = ifnull(validated.get("intent"),Map());
+new_line = hexToText("0A");
+action_raw = ifnull(recommendation.get("action"),"").toString().trim();
+if(action_raw == "")
+{
+	action_raw = "recommendation";
+}
+category_raw = ifnull(intent.get("category"),"").toString().trim();
+if(category_raw == "")
+{
+	category_raw = "email";
+}
+action_label = action_raw.replaceAll("_"," ").trim().proper().replaceAll("Crm","CRM").replaceAll("Ai ","AI ");
+category_label = category_raw.replaceAll("_"," ").trim().proper().replaceAll("Crm","CRM").replaceAll("Ai ","AI ");
+display_name = "AI Recommendation: " + action_label + " - " + category_label;
+if(display_name.length() > 120)
+{
+	display_name = display_name.subString(0,120);
+}
 record = Map();
-record.put("Name",ifnull(validated.get("idempotency_key"),""));
+record.put("Name",display_name);
 record.put("Ingestion_Key",ifnull(validated.get("idempotency_key"),""));
 record.put("Message_ID",ifnull(validated.get("message_id"),"").toString());
 record.put("Target_Module",ifnull(recommendation.get("target_module"),""));
 record.put("Target_Record_ID",ifnull(recommendation.get("target_record_id"),"").toString());
 record.put("Recommendation_Type",ifnull(recommendation.get("action"),""));
 record.put("Requires_Approval",ifnull(safety.get("human_approval_required"),true));
+ai_category = category_label;
+if(ai_category.length() > 255)
+{
+	ai_category = ai_category.subString(0,255);
+}
+ai_summary = ifnull(intent.get("summary"),"").toString().trim();
+if(ai_summary == "")
+{
+	ai_summary = "The AI analysis did not return a summary of this email's request.";
+}
+if(ai_summary.length() > 2000)
+{
+	ai_summary = ai_summary.subString(0,2000);
+}
+ai_rationale = ifnull(recommendation.get("rationale"),"").toString().trim();
+if(ai_rationale == "")
+{
+	ai_rationale = "The AI analysis did not return a rationale for this recommendation.";
+}
+if(ai_rationale.length() > 2000)
+{
+	ai_rationale = ai_rationale.subString(0,2000);
+}
+record.put("AI_Category",ai_category);
+record.put("AI_Summary",ai_summary);
+record.put("AI_Rationale",ai_rationale);
+safety_values = List();
+if(ifnull(safety.get("human_approval_required"),true).toString() == "true")
+{
+	safety_values.add("Human Approval Required");
+}
+if(ifnull(safety.get("closed_won_change_requested"),false).toString() == "true")
+{
+	safety_values.add("Closed Won Change Requested");
+}
+if(ifnull(safety.get("quote_generation_requested"),false).toString() == "true")
+{
+	safety_values.add("Quote Generation Requested");
+}
+if(ifnull(safety.get("contains_insufficient_context"),false).toString() == "true")
+{
+	safety_values.add("Insufficient Context");
+}
+safety_conflicts = ifnull(safety.get("conflicts"),List());
+if(safety_conflicts.size() > 0)
+{
+	safety_values.add("Conflict Detected");
+}
+record.put("Safety_Summary",safety_values);
 raw_zia_text = ifnull(validated.get("raw_zia_response"),"").toString();
 validated.remove("raw_zia_response");
 analysis_text = validated.toString();
@@ -24,7 +92,17 @@ if(raw_zia_text.length() > 2000)
 }
 record.put("Validated_Analysis_JSON",analysis_text);
 record.put("Raw_Zia_Response",raw_zia_text);
-record.put("Review_Notes",ifnull(recommendation.get("review_notes"),""));
+review_reason = ifnull(recommendation.get("review_notes"),"").toString().trim();
+if(review_reason == "")
+{
+	review_reason = "The AI analysis did not return reviewer guidance.";
+}
+review_block = "Recommended Action: " + action_label + new_line + "Reason: " + review_reason;
+if(review_block.length() > 2000)
+{
+	review_block = review_block.subString(0,2000);
+}
+record.put("Review_Notes",review_block);
 record.put("Status","Pending Review");
 record.put("Created_By_AI",true);
 record.put("Validation_Status",ifnull(validated.get("validation_status"),"fallback"));

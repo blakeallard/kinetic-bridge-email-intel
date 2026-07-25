@@ -348,14 +348,27 @@ passes `{"id": target_record_id}`, not a bare id string. A bare string produces
 prior failed live **Lead** Task creation. This value-shape fix is verified offline only;
 Test 5 below must still confirm it live.
 
-### Test 5 is a decision point, not a checkbox
+### Test 5 — RESOLVED by live evidence (2026-07-24)
 
-Test 5 settles the **routing** question (which lookup field a Lead uses), which is
-independent of the value-shape fix above. If the Task does **not** appear on the Lead,
-change `TASK_LINK_FIELD["Leads"]` from `What_Id` to `Who_Id` in
-`scripts/execution_policy.py`, mirror it in the Deluge, and re-run. The evidence is
-genuinely contradictory — the live Tasks metadata and Zoho's Kaizen #36 article support
-`What_Id`; the BI1-T110 brief expects `Who_Id`. Only this test resolves it.
+The routing question is settled. Two independent live facts, both captured 2026-07-24:
+
+1. **Live Tasks field metadata** (`getFields` on `Tasks`): `Who_Id`'s lookup module is
+   **`Contacts` only** (`lookup.module.api_name = "Contacts"`); `What_Id` is a polymorphic
+   lookup whose module is driven by `$se_module`. A Lead therefore cannot be placed in
+   `Who_Id` at all — it is not a Contacts-lookup value.
+2. **Live execution error.** A deployed executor variant that routed a **Lead** target into
+   `Who_Id` (record `6719186000003573001`, target Lead `6719186000003570001`) returned
+   `INVALID_DATA` at `$.data[0].Who_Id.id` — Zoho rejecting the Lead id as an invalid
+   Contact id. Confirmed the Lead itself is valid, unconverted, and `Available`.
+
+**Conclusion:** `TASK_LINK_FIELD["Leads"] = "What_Id"` with `$se_module = "Leads"` is
+correct, matching the metadata and Kaizen #36. The BI1-T110 brief's `Who_Id` expectation is
+**wrong for this org** and must not be applied. The repository already encodes the correct
+routing; the failing run came from a **stale/hand-edited deployed function** that used
+`Who_Id` for Leads. Fix = redeploy `scripts/execute_approved_recommendation.deluge` verbatim
+so live matches the repo. A successful `executed` Lead run is still the final confirmation
+that `What_Id` + `$se_module = "Leads"` creates a linked Task (metadata makes it the only
+viable path; the create itself has not yet been observed to succeed).
 
 ### Test 9 is a decision point too
 

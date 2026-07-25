@@ -1,0 +1,43 @@
+map advance_lead_on_first_outbound(string lead_id)
+{
+result = Map();
+result.put("status","skipped");
+result.put("reason","");
+module_api_name = "Leads";
+eligible_status = "Not Contacted";
+advanced_status = "Contacted";
+record_id = ifnull(lead_id,"").toString().trim();
+if(record_id == "")
+{
+	result.put("reason","lead_id_blank");
+	return result;
+}
+record = zoho.crm.getRecordById(module_api_name,record_id.toLong());
+if(record == null || record.isEmpty() || ifnull(record.get("id"),"").toString() == "")
+{
+	result.put("reason","lead_not_found");
+	result.put("lead_id",record_id);
+	return result;
+}
+current_status = ifnull(record.get("Lead_Status"),"").toString().trim();
+result.put("lead_id",record_id);
+result.put("previous_status",current_status);
+if(current_status != eligible_status)
+{
+	result.put("reason","status_not_eligible");
+	return result;
+}
+update_map = Map();
+update_map.put("Lead_Status",advanced_status);
+update_response = zoho.crm.updateRecord(module_api_name,record_id,update_map);
+if(update_response == null || ifnull(update_response.get("id"),"").toString() == "")
+{
+	result.put("status","failed");
+	result.put("reason","status_update_failed");
+	return result;
+}
+result.put("status","advanced");
+result.put("reason","first_outbound_response");
+result.put("new_status",advanced_status);
+return result;
+}

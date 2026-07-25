@@ -8,65 +8,105 @@ contact_id = ifnull(match.get("contact_id"),"").toString().trim();
 lead_id = ifnull(match.get("lead_id"),"").toString().trim();
 if(contact_id != "")
 {
-	related_deals = zoho.crm.getRelatedRecords("Deals","Contacts",contact_id.toLong(),1,200);
-	for each  deal_record in related_deals
+	try
 	{
-		stage = ifnull(deal_record.get("Stage"),"");
-		if(stage != "Closed Won" && stage != "Closed Lost")
+		related_deals = zoho.crm.getRelatedRecords("Deals","Contacts",contact_id.toLong(),1,200);
+		if(related_deals != null && related_deals.size() > 0)
 		{
-			deal_item = Map();
-			deal_item.put("id",ifnull(deal_record.get("id"),"").toString());
-			deal_item.put("name",ifnull(deal_record.get("Deal_Name"),""));
-			deal_item.put("stage",stage);
-			deal_item.put("amount",ifnull(deal_record.get("Amount"),0));
-			deal_item.put("closing_date",ifnull(deal_record.get("Closing_Date"),"").toString());
-			open_deals.add(deal_item);
+			for each  deal_record in related_deals
+			{
+				stage = ifnull(deal_record.get("Stage"),"");
+				if(stage != "Closed Won" && stage != "Closed Lost")
+				{
+					deal_item = Map();
+					deal_item.put("id",ifnull(deal_record.get("id"),"").toString());
+					deal_item.put("name",ifnull(deal_record.get("Deal_Name"),""));
+					deal_item.put("stage",stage);
+					deal_item.put("amount",ifnull(deal_record.get("Amount"),0));
+					deal_item.put("closing_date",ifnull(deal_record.get("Closing_Date"),"").toString());
+					open_deals.add(deal_item);
+				}
+			}
 		}
 	}
-	related_cases = zoho.crm.getRelatedRecords("Cases","Contacts",contact_id.toLong(),1,200);
-	for each  case_record in related_cases
+	catch (deals_error)
 	{
-		case_status = ifnull(case_record.get("Status"),"");
-		if(case_status != "Closed")
+		open_deals = open_deals;
+	}
+	try
+	{
+		related_cases = zoho.crm.getRelatedRecords("Cases","Contacts",contact_id.toLong(),1,200);
+		if(related_cases != null && related_cases.size() > 0)
 		{
-			case_item = Map();
-			case_item.put("id",ifnull(case_record.get("id"),"").toString());
-			case_item.put("subject",ifnull(case_record.get("Subject"),""));
-			case_item.put("status",case_status);
-			case_item.put("priority",ifnull(case_record.get("Priority"),""));
-			open_cases.add(case_item);
+			for each  case_record in related_cases
+			{
+				case_status = ifnull(case_record.get("Status"),"");
+				if(case_status != "Closed")
+				{
+					case_item = Map();
+					case_item.put("id",ifnull(case_record.get("id"),"").toString());
+					case_item.put("subject",ifnull(case_record.get("Subject"),""));
+					case_item.put("status",case_status);
+					case_item.put("priority",ifnull(case_record.get("Priority"),""));
+					open_cases.add(case_item);
+				}
+			}
 		}
 	}
-	related_tasks = zoho.crm.getRelatedRecords("Tasks","Contacts",contact_id.toLong(),1,200);
-	for each  task_record in related_tasks
+	catch (cases_error)
 	{
-		task_status = ifnull(task_record.get("Status"),"");
-		if(task_status != "Completed")
+		open_cases = open_cases;
+	}
+	try
+	{
+		related_tasks = zoho.crm.getRelatedRecords("Tasks","Contacts",contact_id.toLong(),1,200);
+		if(related_tasks != null && related_tasks.size() > 0)
 		{
-			task_item = Map();
-			task_item.put("id",ifnull(task_record.get("id"),"").toString());
-			task_item.put("subject",ifnull(task_record.get("Subject"),""));
-			task_item.put("status",task_status);
-			task_item.put("due_date",ifnull(task_record.get("Due_Date"),"").toString());
-			open_tasks.add(task_item);
+			for each  task_record in related_tasks
+			{
+				task_status = ifnull(task_record.get("Status"),"");
+				if(task_status != "Completed")
+				{
+					task_item = Map();
+					task_item.put("id",ifnull(task_record.get("id"),"").toString());
+					task_item.put("subject",ifnull(task_record.get("Subject"),""));
+					task_item.put("status",task_status);
+					task_item.put("due_date",ifnull(task_record.get("Due_Date"),"").toString());
+					open_tasks.add(task_item);
+				}
+			}
 		}
+	}
+	catch (tasks_error)
+	{
+		open_tasks = open_tasks;
 	}
 }
 if(lead_id != "")
 {
-	lead_tasks = zoho.crm.getRelatedRecords("Tasks","Leads",lead_id.toLong(),1,200);
-	for each  lead_task in lead_tasks
+	try
 	{
-		lead_task_status = ifnull(lead_task.get("Status"),"");
-		if(lead_task_status != "Completed")
+		lead_tasks = zoho.crm.getRelatedRecords("Tasks","Leads",lead_id.toLong(),1,200);
+		if(lead_tasks != null && lead_tasks.size() > 0)
 		{
-			lead_task_item = Map();
-			lead_task_item.put("id",ifnull(lead_task.get("id"),"").toString());
-			lead_task_item.put("subject",ifnull(lead_task.get("Subject"),""));
-			lead_task_item.put("status",lead_task_status);
-			lead_task_item.put("due_date",ifnull(lead_task.get("Due_Date"),"").toString());
-			open_tasks.add(lead_task_item);
+			for each  lead_task in lead_tasks
+			{
+				lead_task_status = ifnull(lead_task.get("Status"),"");
+				if(lead_task_status != "Completed")
+				{
+					lead_task_item = Map();
+					lead_task_item.put("id",ifnull(lead_task.get("id"),"").toString());
+					lead_task_item.put("subject",ifnull(lead_task.get("Subject"),""));
+					lead_task_item.put("status",lead_task_status);
+					lead_task_item.put("due_date",ifnull(lead_task.get("Due_Date"),"").toString());
+					open_tasks.add(lead_task_item);
+				}
+			}
 		}
+	}
+	catch (lead_tasks_error)
+	{
+		open_tasks = open_tasks;
 	}
 }
 result.put("open_deals",open_deals);

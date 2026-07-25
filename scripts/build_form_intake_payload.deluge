@@ -1,0 +1,110 @@
+map build_form_intake_payload(string form_id, string submitter_email, string first_name, string last_name, string company, string phone, string area_of_interest, string comments, string submitted_at_ms, string intake_address)
+{
+payload = Map();
+form_key = ifnull(form_id,"").toString().trim();
+if(form_key == "")
+{
+	form_key = "KB_Website_Form";
+}
+sender_email = ifnull(submitter_email,"").toString().trim().toLowerCase();
+given_name = ifnull(first_name,"").toString().trim();
+family_name = ifnull(last_name,"").toString().trim();
+sender_name = (given_name + " " + family_name).trim();
+company_name = ifnull(company,"").toString().trim();
+phone_number = ifnull(phone,"").toString().trim();
+interest = ifnull(area_of_interest,"").toString().trim();
+comment_text = ifnull(comments,"").toString().trim();
+timestamp_ms = ifnull(submitted_at_ms,"").toString().trim();
+to_address = ifnull(intake_address,"").toString().trim().toLowerCase();
+if(to_address == "")
+{
+	to_address = "bms@kinetic-bridge.com";
+}
+if(sender_name == "")
+{
+	sender_name = sender_email;
+}
+message_id = "zohoform-" + form_key + "-" + sender_email + "-" + timestamp_ms;
+message_id = message_id.replaceAll("[^A-Za-z0-9._@-]","-");
+if(message_id.length() > 200)
+{
+	message_id = message_id.subString(0,199);
+}
+subject = "Website inquiry";
+if(interest != "")
+{
+	subject = "Website inquiry: " + interest;
+}
+if(company_name != "")
+{
+	subject = subject + " - " + company_name;
+}
+if(subject.length() > 255)
+{
+	subject = subject.subString(0,254);
+}
+body_lines = List();
+if(sender_name != "")
+{
+	body_lines.add("Name: " + sender_name);
+}
+if(company_name != "")
+{
+	body_lines.add("Company: " + company_name);
+}
+if(sender_email != "")
+{
+	body_lines.add("Email: " + sender_email);
+}
+if(phone_number != "")
+{
+	body_lines.add("Phone: " + phone_number);
+}
+if(interest != "")
+{
+	body_lines.add("Area of Interest: " + interest);
+}
+body_text = body_lines.toString("\n");
+if(comment_text != "")
+{
+	body_text = body_text + "\n\n" + comment_text;
+}
+summary_text = comment_text;
+if(summary_text == "")
+{
+	summary_text = subject;
+}
+if(summary_text.length() > 500)
+{
+	summary_text = summary_text.subString(0,499);
+}
+from_block = Map();
+from_block.put("fromAddress",sender_email);
+from_block.put("senderName",sender_name);
+to_block = Map();
+to_block.put("toAddress",to_address);
+cc_block = Map();
+cc_block.put("ccAddress","");
+bcc_block = Map();
+bcc_block.put("bccAddress","");
+date_block = Map();
+date_block.put("sentDateInGMT",timestamp_ms);
+date_block.put("receivedTime",timestamp_ms);
+event_block = Map();
+event_block.put("eventId",message_id);
+event_block.put("eventName","NEW_INBOUND_MESSAGE");
+content_block = Map();
+content_block.put("mailContent",body_text);
+payload.put("messageId",message_id);
+payload.put("portalId",form_key);
+payload.put("subject",subject);
+payload.put("summary",summary_text);
+payload.put("from",from_block);
+payload.put("to",to_block);
+payload.put("cc",cc_block);
+payload.put("bcc",bcc_block);
+payload.put("date",date_block);
+payload.put("event",event_block);
+payload.put("content",content_block);
+return payload;
+}
