@@ -49,10 +49,84 @@ if(recommendation == null)
 match_status = ifnull(trusted_context.get("match_status"),"");
 matched_module = ifnull(trusted_context.get("matched_module"),"");
 matched_record_id = ifnull(trusted_context.get("matched_record_id"),"").toString();
+pending_contact = ifnull(trusted_context.get("pending_contact"),Map());
+if(!pending_contact.isEmpty())
+{
+	zia_contact = Map();
+	if(parse_ok)
+	{
+		zia_contact = ifnull(analysis.get("contact"),Map());
+	}
+	pending_first = ifnull(pending_contact.get("first_name"),"").toString().trim();
+	pending_last = ifnull(pending_contact.get("last_name"),"").toString().trim();
+	pending_company = ifnull(pending_contact.get("company"),"").toString().trim();
+	if(pending_first == "")
+	{
+		pending_first = ifnull(zia_contact.get("first_name"),"").toString().trim();
+		if(pending_first.length() > 40)
+		{
+			pending_first = pending_first.subString(0,40);
+		}
+	}
+	if(pending_last == "")
+	{
+		pending_last = ifnull(zia_contact.get("last_name"),"").toString().trim();
+		if(pending_last.length() > 80)
+		{
+			pending_last = pending_last.subString(0,80);
+		}
+	}
+	if(pending_company == "")
+	{
+		pending_company = ifnull(zia_contact.get("company"),"").toString().trim();
+		if(pending_company.length() > 100)
+		{
+			pending_company = pending_company.subString(0,100);
+		}
+	}
+	pending_email = ifnull(pending_contact.get("email"),"").toString().trim().toLowerCase();
+	email_local = "";
+	email_domain = "";
+	pending_email_parts = pending_email.toList("@");
+	if(pending_email_parts.size() == 2)
+	{
+		email_local = pending_email_parts.get(0).trim();
+		email_domain = pending_email_parts.get(1).trim();
+	}
+	if(pending_last == "")
+	{
+		pending_last = email_local;
+	}
+	if(pending_company == "" && email_domain != "")
+	{
+		domain_parts = email_domain.toList(".");
+		if(domain_parts.size() > 0)
+		{
+			pending_company = domain_parts.get(0).trim().proper();
+		}
+	}
+	pending_contact.put("first_name",pending_first);
+	pending_contact.put("last_name",pending_last);
+	pending_contact.put("company",pending_company);
+}
 if(match_status == "matched" && matched_module != "" && matched_record_id != "")
 {
 	recommendation.put("target_module",matched_module);
 	recommendation.put("target_record_id",matched_record_id);
+}
+else if(match_status == "pending_lead")
+{
+	recommendation.put("action","create_crm_task");
+	recommendation.put("target_module","Leads");
+	recommendation.put("target_record_id","");
+	if(ifnull(recommendation.get("rationale"),"").toString().trim() == "")
+	{
+		recommendation.put("rationale","New inbound contact with no existing CRM record; create a Lead and a follow-up task on approval.");
+	}
+	if(ifnull(recommendation.get("review_notes"),"").toString().trim() == "")
+	{
+		recommendation.put("review_notes","Review the new inbound contact; approving creates the Lead and its follow-up task.");
+	}
 }
 else
 {
@@ -81,7 +155,7 @@ if(parse_ok == false)
 	safety.put("contains_insufficient_context",true);
 	conflicts.add("invalid_zia_json_response");
 }
-else if(match_status != "matched")
+else if(match_status != "matched" && match_status != "pending_lead")
 {
 	safety.put("contains_insufficient_context",true);
 	conflicts.add("crm_record_not_found");
@@ -96,6 +170,10 @@ if(match_status == "matched" && matched_module != "" && matched_record_id != "")
 {
 	validation_status = "valid";
 }
+else if(match_status == "pending_lead")
+{
+	validation_status = "valid";
+}
 validated = Map();
 validated.put("schema_version","1.0");
 validated.put("message_id",ifnull(trusted_message.get("message_id"),"").toString());
@@ -106,6 +184,23 @@ validated.put("lifecycle_interpretation",lifecycle);
 validated.put("recommendation",recommendation);
 validated.put("safety",safety);
 validated.put("validation_status",validation_status);
+validated.put("pending_contact",pending_contact);
+pending_message = Map();
+if(!pending_contact.isEmpty())
+{
+	pending_message.put("message_id",ifnull(trusted_message.get("message_id"),"").toString());
+	pending_message.put("from_email",ifnull(trusted_message.get("from_email"),"").toString());
+	pending_message.put("from_name",ifnull(trusted_message.get("from_name"),"").toString());
+	pending_message.put("to_email",ifnull(trusted_message.get("to_email"),"").toString());
+	pending_message.put("cc_email",ifnull(trusted_message.get("cc_email"),"").toString());
+	pending_message.put("subject",ifnull(trusted_message.get("subject"),"").toString());
+	pending_message.put("summary",ifnull(trusted_message.get("summary"),"").toString());
+	pending_body_text = ifnull(trusted_message.get("body_text"),"").toString();
+	pending_body_html = pending_body_text.replaceAll(hexToText("0A"),"<br>");
+	pending_message.put("body_html",pending_body_html);
+	pending_message.put("received_at_ms",ifnull(trusted_message.get("received_at_ms"),"").toString());
+}
+validated.put("pending_message",pending_message);
 validated.put("raw_zia_response",ifnull(raw_response,""));
 return validated;
 }

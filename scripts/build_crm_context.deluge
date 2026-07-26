@@ -1,10 +1,11 @@
-map build_crm_context(string from_email, string from_domain, string contact_id, string lead_id, string account_id)
+map build_crm_context(string from_email, string from_domain, string contact_id, string lead_id, string account_id, map pending_contact)
 {
 safe_email = ifnull(from_email,"").trim();
 safe_domain = ifnull(from_domain,"").trim();
 safe_contact_id = ifnull(contact_id,"").trim();
 safe_lead_id = ifnull(lead_id,"").trim();
 safe_account_id = ifnull(account_id,"").trim();
+safe_pending = ifnull(pending_contact,Map());
 match_status = "no_match";
 match_type = "none";
 matched_module = "";
@@ -34,6 +35,14 @@ else if(safe_account_id != "")
 	matched_record_id = safe_account_id;
 	match_method = "sender_domain";
 }
+else if(!safe_pending.isEmpty() && ifnull(safe_pending.get("email"),"").toString().trim() != "")
+{
+	match_status = "pending_lead";
+	match_type = "pending_lead";
+	matched_module = "Leads";
+	matched_record_id = "";
+	match_method = "deferred_lead_creation";
+}
 result = Map();
 result.put("schema_version","1.0");
 result.put("source","zoho_teaminbox");
@@ -47,6 +56,7 @@ result.put("match_method",match_method);
 result.put("contact_id",safe_contact_id);
 result.put("lead_id",safe_lead_id);
 result.put("account_id",safe_account_id);
-result.put("precedence","contact>lead>account_domain");
+result.put("pending_contact",safe_pending);
+result.put("precedence","contact>lead>account_domain>pending_lead");
 return result;
 }

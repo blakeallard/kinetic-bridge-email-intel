@@ -107,6 +107,33 @@ record.put("Status","Pending Review");
 record.put("Created_By_AI",true);
 record.put("Validation_Status",ifnull(validated.get("validation_status"),"fallback"));
 record.put("Execution_Status","Not Started");
+pending_contact = ifnull(validated.get("pending_contact"),Map());
+is_pending_lead = ifnull(recommendation.get("target_module"),"").toString() == "Leads" && ifnull(recommendation.get("target_record_id"),"").toString().trim() == "" && !pending_contact.isEmpty() && ifnull(pending_contact.get("email"),"").toString().trim() != "";
+if(is_pending_lead)
+{
+	record.put("Email",ifnull(pending_contact.get("email"),"").toString());
+	pending_wrapper = Map();
+	pending_wrapper.put("pending_lead",pending_contact);
+	pending_message = ifnull(validated.get("pending_message"),Map());
+	if(!pending_message.isEmpty())
+	{
+		pending_body = ifnull(pending_message.get("body_html"),"").toString();
+		if(pending_body.length() > 24000)
+		{
+			pending_body = pending_body.subString(0,24000);
+			pending_message.put("body_truncated",true);
+		}
+		pending_message.put("body_html",pending_body);
+		pending_wrapper.put("pending_message",pending_message);
+	}
+	pending_json = pending_wrapper.toString();
+	if(pending_json.length() > 32000)
+	{
+		pending_wrapper.remove("pending_message");
+		pending_json = pending_wrapper.toString();
+	}
+	record.put("Approved_Action_JSON",pending_json);
+}
 records_list = List();
 records_list.add(record);
 request_body = Map();
