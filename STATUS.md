@@ -18,6 +18,43 @@ Current source of truth:
 - Zoho Projects is the source of truth for intake status unless explicitly documented otherwise.
 - Do not modify Zoho runtime systems, Creator, CRM, Books, Flow, Sheet, or WorkDrive unless explicitly approved.
 
+## PASSED — rejection creates nothing (2026-07-25)
+
+**The last unproven claim in Model C, and the entire justification for deferring Lead
+creation until approval.** Never exercised before today.
+
+Recommendation `6719186000003539012`, rejected through Blueprint:
+
+| Field | Value | Meaning |
+| --- | --- | --- |
+| `Status` | `Rejected` | |
+| `Target_Record_ID` | **null** | the Lead was deferred and never materialized |
+| `Email` | `blakeallard@blakeallard.com` | populated only on the `pending_lead` path — confirms this was a deferred lead, not a matched record |
+| `Executed_Task_ID` | null | |
+| `Execution_Status` | `Not Started` | the executor never ran |
+
+Verified by COQL after the fact: **no Lead exists for that address, and no Task was created
+in the window.** Under the pre-Model-C behaviour the Lead would have been created the moment
+the email arrived — which is exactly how the three DMARC robots became Leads.
+
+**A first attempt was inconclusive and is worth recording.** Rejecting recommendation
+`6719186000003573011` also created nothing, but its `Target_Record_ID` was already populated
+and its `Email` was null — the *matched* path, where nothing was ever queued to create. The
+Dana Whitfield Lead from the reference result below was still present, so the sender matched
+it at stage 1. The Lead had to be deleted before the deferred path could be reached at all.
+The matched-path rejection is still a real result and was also previously untested.
+
+### Model C coverage after today
+
+| Path | State |
+| --- | --- |
+| Unmatched → approve → Lead + Task + associated email | ✅ live |
+| Unmatched → **reject** → nothing created | ✅ live |
+| Matched → approve → Task on the existing record | ✅ live |
+| Matched → reject → nothing created | ✅ live |
+| Full-fidelity extraction (15 Lead fields) | ✅ live |
+| Automated-sender gate | awaiting a natural robot email |
+
 ## REFERENCE RESULT — full-fidelity extraction proven live (2026-07-25)
 
 **Lead `6719186000003626001` ("Dana Whitfield") is the reference result for this
@@ -488,9 +525,8 @@ related list.
 
 ### Tests still unrun (Blake)
 
-1. **Rejection test — the last unproven piece of Model C.** Send from an unmatched
-   address, **reject** the recommendation, confirm **no Lead and no Task** were created.
-   This is the entire justification for the deferred-lead design and has never been run.
+1. ~~Rejection test — the last unproven piece of Model C.~~ **PASSED 2026-07-25** — see the
+   entry at the top of this file.
 2. **Website form submission** — end to end. Note the form still goes through the legacy
    `build_form_intake_payload` fake-email hop; `unified_intake_architecture.md` §2 says to
    retire it in favour of `normalize_form_entry`, which is not done.
