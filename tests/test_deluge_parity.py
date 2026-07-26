@@ -128,6 +128,28 @@ class TestTaskAssignmentParity(unittest.TestCase):
         for untrusted in ("AI_Summary", "AI_Rationale", "Raw_Zia_Response"):
             self.assertNotIn(untrusted, CODE)
 
+    def test_the_subject_names_the_target_record_and_survives_a_failed_lookup(self):
+        """The display name is read from the CRM record, not from model output,
+        so it stays inside the trusted-scalars rule. A lookup failure must never
+        abort execution — it degrades to the sender address.
+        """
+        self.assertIn(
+            "target_record = zoho.crm.getRecordById(target_module,target_record_id.toLong())",
+            CODE,
+        )
+        self.assertIn('subject_who = ifnull(target_record.get("Full_Name"),"").toString().trim()', CODE)
+        self.assertIn('subject_who = ifnull(target_record.get("Account_Name"),"").toString().trim()', CODE)
+        self.assertIn("catch (subject_lookup_error)", CODE)
+        self.assertIn("subject_who = sender_email;", CODE)
+
+    def test_the_target_lookup_happens_after_the_claim(self):
+        """A pre-claim lookup would burn an API call for a caller that loses the
+        race; the claim is what authorizes any further work.
+        """
+        claim = CODE.index("If-Unmodified-Since")
+        lookup = CODE.index("target_record = zoho.crm.getRecordById")
+        self.assertLess(claim, lookup)
+
 
 class TestSafetyInvariants(unittest.TestCase):
     def test_deluge_never_reads_the_raw_model_output(self):

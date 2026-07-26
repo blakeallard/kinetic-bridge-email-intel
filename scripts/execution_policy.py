@@ -309,7 +309,10 @@ def is_already_claimed(record: dict[str, Any]) -> bool:
 
 
 def build_task_payload(
-    record: dict[str, Any], record_id: str, due_date: str = ""
+    record: dict[str, Any],
+    record_id: str,
+    due_date: str = "",
+    target_display_name: str = "",
 ) -> dict[str, Any]:
     """Build the Task from persisted trusted scalars only.
 
@@ -331,9 +334,12 @@ def build_task_payload(
     ai_category = field("AI_Category")
     sender_email = field("Email")
     subject_topic = ai_category if ai_category else "AI Recommendation"
+    subject_who = sanitize(text_of(target_display_name), FIELD_MAX_LEN)
+    if not subject_who:
+        subject_who = sender_email
     subject_text = f"Follow up: {subject_topic}"
-    if sender_email:
-        subject_text = f"{subject_text} - {sender_email}"
+    if subject_who:
+        subject_text = f"{subject_text} - {subject_who}"
     subject = sanitize(subject_text, TASK_SUBJECT_MAX_LEN)
 
     reviewed_by_id = text_of((record.get("Reviewed_By") or {}).get("id"))
@@ -497,7 +503,24 @@ def execute_approved_recommendation(
     except ExecutionError as exc:
         return _result("failed", reason="claim_failed", error=sanitize_error(str(exc)))
 
-    task_payload = build_task_payload(record, record_id, due_date_from(clock))
+    target_display_name = ""
+    try:
+        target = crm.get_record(
+            text_of(record.get("Target_Module")), text_of(record.get("Target_Record_ID"))
+        )
+        if target:
+            name_field = (
+                "Account_Name"
+                if text_of(record.get("Target_Module")) == "Accounts"
+                else "Full_Name"
+            )
+            target_display_name = text_of(target.get(name_field))
+    except Exception:  # noqa: BLE001
+        target_display_name = ""
+
+    task_payload = build_task_payload(
+        record, record_id, due_date_from(clock), target_display_name
+    )
     try:
         created = crm.create_record(TASKS_MODULE_API_NAME, task_payload)
         task_id = text_of((created or {}).get("id"))

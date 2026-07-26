@@ -18,6 +18,86 @@ Current source of truth:
 - Zoho Projects is the source of truth for intake status unless explicitly documented otherwise.
 - Do not modify Zoho runtime systems, Creator, CRM, Books, Flow, Sheet, or WorkDrive unless explicitly approved.
 
+## REFERENCE RESULT — full-fidelity extraction proven live (2026-07-25)
+
+**Lead `6719186000003626001` ("Dana Whitfield") is the reference result for this
+pipeline.** First run in which an inbound email produced a genuinely actionable CRM record
+rather than a stub. Chain: recommendation `6719186000003552011` → Lead
+`6719186000003626001` → Task `6719186000003548003`, `Execution_Attempts = 1`, no error,
+source email attached.
+
+**15 fields written, all from one email:**
+
+| Field | Value |
+| --- | --- |
+| `First_Name` / `Last_Name` | Dana / Whitfield |
+| `Company` | Northgate Fleet Systems LLC |
+| `Designation` (UI label "Title") | Director of Fleet Engineering |
+| `Phone` | +1 310 555 0142 |
+| `Street` / `City` / `State` / `Zip_Code` / `Country` | 4820 Corbin Avenue / Torrance / CA / 90503 / USA |
+| `Secondary_Email` | d.whitfield@northgatefleet.com |
+| `Website` | northgatefleet.com |
+| `Area_of_Interest` | Battery Management Systems |
+| `Routed_Mailbox` | info@kinetic-bridge.com |
+| `Lifecycle_Stage` | Intake |
+
+**The test email deliberately mismatched envelope and signature** — sent from
+`blakeallard@blakeallard.com` with a Dana Whitfield / Northgate signature. This is the
+realistic case (personal addresses, assistants sending on behalf, forwarded intros), and
+Blake's instruction on 2026-07-25 was explicit: **do not reshape the test to fit the
+system.** Two properties fall out of it:
+
+- `Company` = `Northgate Fleet Systems LLC` and `Website` = `northgatefleet.com`, i.e. the
+  **stated** values, not `Blakeallard` / `blakeallard.com`. The "never guess from the
+  domain" instruction holds under direct temptation.
+- `First_Name` = `Dana`, with `fallback_first_name` = `Blake` carried but unused — the
+  precedence fix below, working.
+
+**Zia parsed a mangled signature.** The mail client reflowed the block on send, merging the
+name and company lines into `Dana Whitfield     Northgate Fleet Systems LLC\r<br> |
+Director of Fleet Engineering`. All 13 extracted fields were still correct.
+
+### Three root causes fixed to get here
+
+1. **Under-specified schema (mine).** The `contact` object had three keys, and FINAL
+   VALIDATION rule 7 forbids keys outside the contract — so the agent was *instructed* to
+   discard the phone, title and address it had already read. Expanded to 13 fields.
+2. **Wrong precedence (`ensure_crm_match`).** The envelope display name was written before
+   the overlay ran, and the overlay only fills blanks, so a mail-client string permanently
+   outranked the person's own signature. A signature reading "Dana Whitfield" lost to a
+   TeamInbox `senderName` of "Blake". Display-name derivation now parks under
+   `fallback_first_name` / `fallback_last_name` for **email** intake; **form** intake keeps
+   it authoritative, because there it is a structured field.
+3. **Wrong API name.** The Lead field labelled "Title" in the UI is `Designation`. Writing
+   `Title` fails silently. Confirmed by live `getFields`, pinned by test.
+
+**Not a model-capability problem.** The one rule written precisely — never infer the
+company from the domain — was obeyed against an easier wrong answer sitting in the From
+header. The agent was under-instructed, not over-asked.
+
+### Also landed in this pass
+
+- **Task subject names the person.** Was `Follow up: Inquiry - blakeallard@blakeallard.com`;
+  now resolves the target record's `Full_Name` (`Account_Name` for Accounts) and reads
+  `Follow up: Inquiry - Dana Whitfield`. The lookup is a CRM read, not model output, so the
+  trusted-scalars rule is intact; it runs **after** the claim so a caller that loses the
+  race never spends the call; and any failure degrades to the sender address rather than
+  aborting. `execution_policy.py` kept in parity via a `target_display_name` argument.
+- **Lead `Description` now prefers `AI_Summary`** over `pending_message.summary`, which is
+  TeamInbox's ~100-character preview and produced Descriptions cut mid-word. **Policy note:**
+  this deliberately admits model-authored prose into a Lead field. It is display text, never
+  an instruction surface, and the executor's stricter rule — never reading `AI_Summary` for
+  Task content — is unchanged and still pinned.
+- Company cap corrected 100 → **200**, the live field length.
+
+**Validation.** 295 tests pass, ruff clean.
+
+**Deliberately not done:** `Lead_Source` stays hardcoded `Email` even when the body says
+"referred to you by a colleague". Blake, 2026-07-25: not important at this stage.
+
+**Deploy set:** `ensure_crm_match`, `validate_zia_analysis_response_tagged`,
+`materialize_pending_lead`, `execute_approved_recommendation`, plus Zia agent version 5.
+
 ## Live defect found and fixed — approval Flow crashed on a matched recommendation (2026-07-25)
 
 **Observed live.** Approving recommendation `6719186000003545011` ran
@@ -392,13 +472,19 @@ related list.
 - Executor Task fixes: owner = approver, readable subject, +2 day due date.
 - Form body newline fixes.
 
+### Deployed — extraction stack is live
+
+- **Zia agent `28302000000011001` is at version 5, Deployed**, carrying the 13-field
+  `contact` object and the signature-is-authoritative rule. Triggers stay empty by design —
+  Zoho Flow calls the agent through `Trigger agent execution`; a Zia-side trigger would give
+  it a second activation path with no processing gate in front of it.
+- `ensure_crm_match`, `validate_zia_analysis_response_tagged`, `materialize_pending_lead`
+  deployed and live-proven by the reference result at the top of this file.
+
 ### NOT deployed — repo is ahead of live
 
-1. `ensure_crm_match` and `validate_zia_analysis_response_tagged` — contact/company
-   extraction (see the 2026-07-25 extraction entry above).
-2. **Zia agent `28302000000011001`** — must add the `contact` object to its response
-   schema and instructions. **The extraction code is a no-op until this lands**; it will
-   just fall through to the email-domain fallback.
+1. `execute_approved_recommendation` — Task subject now names the target record rather than
+   the sender address. Everything else in the deploy set is live.
 
 ### Tests still unrun (Blake)
 
@@ -408,7 +494,8 @@ related list.
 2. **Website form submission** — end to end. Note the form still goes through the legacy
    `build_form_intake_payload` fake-email hop; `unified_intake_architecture.md` §2 says to
    retire it in favour of `normalize_form_entry`, which is not done.
-3. **Company extraction retest** after the Zia agent change.
+3. ~~Company extraction retest after the Zia agent change.~~ **Done** — see the reference
+   result at the top of this file.
 
 ### Known open defects / gaps
 

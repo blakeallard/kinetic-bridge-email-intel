@@ -366,7 +366,13 @@ class TestConcurrentClaim(unittest.TestCase):
         first = execute_approved_recommendation(RECORD_ID, crm, FakeClock())
         second = execute_approved_recommendation(RECORD_ID, crm, FakeClock())
 
-        self.assertEqual(crm.reads, 2, "both callers must have read the same state")
+        self.assertEqual(
+            crm.reads,
+            3,
+            "two pre-claim reads (one per caller, same state) plus exactly one "
+            "post-claim target lookup for the Task subject — the loser must not "
+            "reach that lookup",
+        )
         outcomes = sorted([first["status"], second["status"]])
         self.assertEqual(outcomes, ["duplicate", "executed"])
         self.assertEqual(len(crm.created_tasks), 1,
@@ -728,6 +734,31 @@ class TestTaskAssignment(unittest.TestCase):
 
     def test_an_oversized_category_still_respects_the_subject_bound(self):
         payload = build_task_payload(record(AI_Category="c" * 900), RECORD_ID)
+        self.assertLessEqual(len(payload["Subject"]), 255)
+
+    def test_the_subject_prefers_the_target_record_name_over_the_sender_address(self):
+        """An email address is the least useful identifier available once the
+        CRM record carries a real name — it is what a human scans in a task list.
+        """
+        payload = build_task_payload(
+            record(AI_Category="Inquiry", Email="blakeallard@blakeallard.com"),
+            RECORD_ID,
+            target_display_name="Dana Whitfield",
+        )
+        self.assertEqual(payload["Subject"], "Follow up: Inquiry - Dana Whitfield")
+
+    def test_the_subject_falls_back_to_the_sender_when_the_name_is_unavailable(self):
+        payload = build_task_payload(
+            record(AI_Category="Inquiry", Email="jane@example.com"),
+            RECORD_ID,
+            target_display_name="",
+        )
+        self.assertEqual(payload["Subject"], "Follow up: Inquiry - jane@example.com")
+
+    def test_an_oversized_target_name_still_respects_the_subject_bound(self):
+        payload = build_task_payload(
+            record(AI_Category="Inquiry"), RECORD_ID, target_display_name="n" * 900
+        )
         self.assertLessEqual(len(payload["Subject"]), 255)
 
 

@@ -254,10 +254,34 @@ if(subject_topic == "")
 {
 	subject_topic = "AI Recommendation";
 }
-subject = "Follow up: " + subject_topic;
-if(sender_email != "")
+subject_who = "";
+try
 {
-	subject = subject + " - " + sender_email;
+	target_record = zoho.crm.getRecordById(target_module,target_record_id.toLong());
+	if(target_record != null && !target_record.isEmpty())
+	{
+		if(target_module == "Accounts")
+		{
+			subject_who = ifnull(target_record.get("Account_Name"),"").toString().trim();
+		}
+		else
+		{
+			subject_who = ifnull(target_record.get("Full_Name"),"").toString().trim();
+		}
+	}
+}
+catch (subject_lookup_error)
+{
+	subject_who = "";
+}
+if(subject_who == "")
+{
+	subject_who = sender_email;
+}
+subject = "Follow up: " + subject_topic;
+if(subject_who != "")
+{
+	subject = subject + " - " + subject_who;
 }
 if(subject.length() > 255)
 {
