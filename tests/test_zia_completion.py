@@ -1,8 +1,7 @@
 """Static regression checks for the Zia completion / bounded-polling functions."""
 
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "scripts"

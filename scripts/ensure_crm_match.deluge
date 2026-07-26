@@ -1,0 +1,77 @@
+map ensure_crm_match(map normalized, map resolve_result)
+{
+if(resolve_result != null && ifnull(resolve_result.get("match_status"),"") == "matched")
+{
+	return resolve_result;
+}
+result = Map();
+safe_email = ifnull(normalized.get("from_email"),"").trim().toLowerCase();
+sender_name = ifnull(normalized.get("from_name"),"").trim();
+from_domain = ifnull(normalized.get("from_domain"),"").trim().toLowerCase();
+body_html = ifnull(normalized.get("body_html"),"").toString();
+is_form_intake = ifnull(normalized.get("is_form_intake"),false);
+structured_company = ifnull(normalized.get("company_name"),"").toString().trim();
+structured_phone = ifnull(normalized.get("phone"),"").toString().trim();
+first_name = "";
+last_name = "";
+if(sender_name != "")
+{
+	name_parts = sender_name.toList(" ");
+	if(name_parts.size() >= 2)
+	{
+		first_name = name_parts.get(0).trim();
+		last_name = sender_name.subString(first_name.length(),sender_name.length()).trim();
+	}
+	else
+	{
+		first_name = sender_name;
+	}
+}
+company_name = structured_company;
+if(company_name == "")
+{
+	body_text = body_html.replaceAll("<[^>]*>"," ").replaceAll("&nbsp;"," ");
+	company_index = body_text.indexOf("Company:");
+	if(company_index >= 0)
+	{
+		company_tail = body_text.subString(company_index + 8,body_text.length()).trim();
+		company_lines = company_tail.toList(hexToText("0A"));
+		if(company_lines.size() > 0)
+		{
+			company_name = company_lines.get(0).trim();
+		}
+		if(company_name.indexOf("Email:") >= 0)
+		{
+			company_name = company_name.subString(0,company_name.indexOf("Email:")).trim();
+		}
+	}
+}
+lead_source = "Email";
+if(is_form_intake == true)
+{
+	lead_source = "Website";
+}
+pending_contact = Map();
+pending_contact.put("first_name",first_name);
+pending_contact.put("last_name",last_name);
+pending_contact.put("company",company_name);
+pending_contact.put("email",safe_email);
+pending_contact.put("phone",structured_phone);
+pending_contact.put("lead_source",lead_source);
+pending_contact.put("area_of_interest",ifnull(normalized.get("area_of_interest"),"").toString().trim());
+match_status = "pending_lead";
+if(safe_email == "")
+{
+	match_status = "no_match";
+}
+result.put("match_status",match_status);
+result.put("match_type","pending_lead");
+result.put("matched_module","Leads");
+result.put("matched_record_id","");
+result.put("contact_id","");
+result.put("lead_id","");
+result.put("account_id","");
+result.put("pending_contact",pending_contact);
+result.put("lead_source",lead_source);
+return result;
+}

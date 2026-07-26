@@ -60,10 +60,11 @@ if(submitted_text != "")
 {
 	body_lines.add("Submitted: " + submitted_text);
 }
-body_text = body_lines.toString("\n");
+new_line = hexToText("0A");
+body_text = body_lines.toString(new_line);
 if(comment_text != "")
 {
-	body_text = body_text + "\n\n" + comment_text;
+	body_text = body_text + new_line + new_line + comment_text;
 }
 is_valid_sender = email_parts.size() == 2 && from_domain.contains(".");
 is_internal_sender = from_domain == "bevco-tech.com" || from_domain == "kinetic-bridge.com";

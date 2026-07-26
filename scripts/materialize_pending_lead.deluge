@@ -1,0 +1,190 @@
+map materialize_pending_lead(string ai_recommendation_record_id)
+{
+result = Map();
+result.put("normalized_message",Map());
+result.put("crm_context",Map());
+module_api_name = "AI_Recommendations";
+record_id = ifnull(ai_recommendation_record_id,"").toString().trim();
+if(record_id == "")
+{
+	result.put("status","blocked");
+	result.put("reason","record_id_blank");
+	return result;
+}
+record = zoho.crm.getRecordById(module_api_name,record_id.toLong());
+if(record == null || record.isEmpty() || ifnull(record.get("id"),"").toString() == "")
+{
+	result.put("status","blocked");
+	result.put("reason","record_not_found");
+	result.put("record_id",record_id);
+	return result;
+}
+existing_target = ifnull(record.get("Target_Record_ID"),"").toString().trim();
+if(existing_target != "")
+{
+	result.put("status","skipped");
+	result.put("reason","target_already_set");
+	result.put("record_id",record_id);
+	result.put("target_record_id",existing_target);
+	return result;
+}
+action_json_raw = ifnull(record.get("Approved_Action_JSON"),"").toString().trim();
+if(action_json_raw == "")
+{
+	result.put("status","skipped");
+	result.put("reason","no_pending_lead");
+	result.put("record_id",record_id);
+	return result;
+}
+action_map = Map();
+try
+{
+	action_map = action_json_raw.toMap();
+}
+catch (parse_error)
+{
+	result.put("status","failed");
+	result.put("reason","pending_payload_unparseable");
+	result.put("record_id",record_id);
+	return result;
+}
+pending = ifnull(action_map.get("pending_lead"),Map());
+if(pending.isEmpty())
+{
+	result.put("status","skipped");
+	result.put("reason","no_pending_lead");
+	result.put("record_id",record_id);
+	return result;
+}
+lead_email = ifnull(pending.get("email"),"").toString().trim().toLowerCase();
+last_name = ifnull(pending.get("last_name"),"").toString().trim();
+first_name = ifnull(pending.get("first_name"),"").toString().trim();
+company_name = ifnull(pending.get("company"),"").toString().trim();
+phone_number = ifnull(pending.get("phone"),"").toString().trim();
+lead_source = ifnull(pending.get("lead_source"),"Email").toString().trim();
+if(last_name == "")
+{
+	last_name = "Unknown";
+}
+if(company_name == "")
+{
+	company_name = "Unknown";
+}
+if(lead_source == "")
+{
+	lead_source = "Email";
+}
+if(lead_email == "")
+{
+	result.put("status","blocked");
+	result.put("reason","pending_contact_incomplete");
+	result.put("record_id",record_id);
+	return result;
+}
+pending_message = ifnull(action_map.get("pending_message"),Map());
+lead_description = ifnull(pending_message.get("summary"),"").toString().trim();
+if(lead_description.length() > 32000)
+{
+	lead_description = lead_description.subString(0,32000);
+}
+lead_website = ifnull(pending.get("website"),"").toString().trim();
+if(lead_website == "")
+{
+	email_parts = lead_email.toList("@");
+	if(email_parts.size() == 2)
+	{
+		lead_website = email_parts.get(1).trim();
+	}
+}
+if(lead_website.length() > 255)
+{
+	lead_website = "";
+}
+routed_mailbox = ifnull(pending_message.get("to_email"),"").toString().trim();
+if(routed_mailbox.length() > 255)
+{
+	routed_mailbox = "";
+}
+allowed_areas = list();
+allowed_areas.add("Service/Advisory");
+allowed_areas.add("Battery Management Systems");
+allowed_areas.add("Low Voltage Manufacturing");
+allowed_areas.add("Cell/Production Distribution");
+allowed_areas.add("Other");
+area_of_interest = ifnull(pending.get("area_of_interest"),"").toString().trim();
+if(!allowed_areas.contains(area_of_interest))
+{
+	area_of_interest = "";
+}
+lead_owner_id = "6719186000002395001";
+lead_map = Map();
+lead_map.put("Last_Name",last_name);
+if(first_name != "")
+{
+	lead_map.put("First_Name",first_name);
+}
+lead_map.put("Company",company_name);
+lead_map.put("Email",lead_email);
+if(phone_number != "")
+{
+	lead_map.put("Phone",phone_number);
+}
+lead_map.put("Lead_Source",lead_source);
+lead_map.put("Lead_Status","Not Contacted");
+if(lead_website != "")
+{
+	lead_map.put("Website",lead_website);
+}
+if(lead_description != "")
+{
+	lead_map.put("Description",lead_description);
+}
+lead_map.put("Lifecycle_Stage","Intake");
+if(routed_mailbox != "")
+{
+	lead_map.put("Routed_Mailbox",routed_mailbox);
+}
+if(area_of_interest != "")
+{
+	lead_map.put("Area_of_Interest",area_of_interest);
+}
+owner_map = Map();
+owner_map.put("id",lead_owner_id);
+lead_map.put("Owner",owner_map);
+create_response = zoho.crm.createRecord("Leads",lead_map,Map(),"zoho_crm_to_zoho_flow");
+new_lead_id = "";
+if(create_response != null)
+{
+	new_lead_id = ifnull(create_response.get("id"),"").toString();
+}
+if(new_lead_id == "")
+{
+	result.put("status","failed");
+	result.put("reason","lead_create_failed");
+	result.put("record_id",record_id);
+	return result;
+}
+update_map = Map();
+update_map.put("Target_Module","Leads");
+update_map.put("Target_Record_ID",new_lead_id);
+update_response = zoho.crm.updateRecord(module_api_name,record_id,update_map);
+if(update_response == null || ifnull(update_response.get("id"),"").toString() == "")
+{
+	result.put("status","failed");
+	result.put("reason","target_write_failed");
+	result.put("record_id",record_id);
+	result.put("lead_id",new_lead_id);
+	return result;
+}
+result.put("status","created");
+result.put("record_id",record_id);
+result.put("lead_id",new_lead_id);
+result.put("target_record_id",new_lead_id);
+association_context = Map();
+association_context.put("match_status","matched");
+association_context.put("matched_module","Leads");
+association_context.put("matched_record_id",new_lead_id);
+result.put("normalized_message",pending_message);
+result.put("crm_context",association_context);
+return result;
+}

@@ -23,10 +23,12 @@ from execution_policy import (
     ALLOWED_RECOMMENDATION_TYPE,
     ALLOWED_TARGET_MODULES,
     ERROR_MAX_LEN,
+    FALLBACK_TASK_OWNER_ID,
     MAX_EXECUTION_ATTEMPTS,
     POLICY_CHECKS,
     REVIEW_NOTES_MAX_LEN,
     TASK_DESCRIPTION_MAX_LEN,
+    TASK_DUE_DAYS,
     TASK_SUBJECT_MAX_LEN,
     evaluate_policy,
 )
@@ -86,6 +88,45 @@ class TestConstantParity(unittest.TestCase):
     def test_execution_status_values_match(self):
         for status in ("Not Started", "In Progress", "Executed", "Failed", "Blocked"):
             self.assertIn(f'"{status}"', CODE)
+
+    def test_task_due_days_match(self):
+        self.assertIn(f"task_due_days = {TASK_DUE_DAYS}", CODE)
+
+    def test_fallback_task_owner_matches(self):
+        self.assertIn(f'fallback_task_owner_id = "{FALLBACK_TASK_OWNER_ID}"', CODE)
+
+
+class TestTaskAssignmentParity(unittest.TestCase):
+    """The Task must land on the approver, be readable, and carry a due date."""
+
+    def test_the_deluge_owns_the_task_to_the_approver(self):
+        self.assertIn('reviewed_by_id = ifnull(reviewed_by_raw.get("id")', CODE)
+        self.assertIn("task_owner_id = reviewed_by_id", CODE)
+        self.assertIn('task.put("Owner",task_owner)', CODE)
+
+    def test_the_deluge_falls_back_rather_than_leaving_the_owner_unset(self):
+        self.assertIn('if(task_owner_id == "")', CODE)
+        self.assertIn("task_owner_id = fallback_task_owner_id", CODE)
+
+    def test_the_owner_is_an_id_object_not_a_bare_string(self):
+        self.assertIn('task_owner.put("id",task_owner_id)', CODE)
+        self.assertNotIn('task.put("Owner",task_owner_id)', CODE)
+
+    def test_the_deluge_sets_a_due_date(self):
+        self.assertIn(
+            'task.put("Due_Date",zoho.currentdate.addDay(task_due_days)'
+            '.toString("yyyy-MM-dd"))',
+            CODE,
+        )
+
+    def test_the_subject_is_readable_not_a_raw_message_id(self):
+        self.assertIn('subject = "Follow up: " + subject_topic', CODE)
+        self.assertNotIn('"AI Recommendation: follow up on email " + message_id', CODE)
+
+    def test_the_subject_never_reads_untrusted_model_output(self):
+        self.assertIn('ai_category = ifnull(record.get("AI_Category")', CODE)
+        for untrusted in ("AI_Summary", "AI_Rationale", "Raw_Zia_Response"):
+            self.assertNotIn(untrusted, CODE)
 
 
 class TestSafetyInvariants(unittest.TestCase):

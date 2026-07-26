@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from execution_policy import (
     ALLOWED_TARGET_MODULES,
+    FALLBACK_TASK_OWNER_ID,
     MAX_EXECUTION_ATTEMPTS,
     POST_CLAIM_FAILURE_REASONS,
     PRE_CLAIM_FAILURE_REASONS,
@@ -683,6 +684,51 @@ class TestAdversarialRawResponse(unittest.TestCase):
     def test_sanitizer_preserves_diagnostic_identifiers(self):
         self.assertIn("execution_attempts_limit_reached",
                       sanitize_error("policy_violation: execution_attempts_limit_reached"))
+
+
+class TestTaskAssignment(unittest.TestCase):
+    """The Task must be assignable, findable, and readable by a human."""
+
+    def test_the_task_is_owned_by_whoever_approved_it(self):
+        payload = build_task_payload(
+            record(Reviewed_By={"name": "Bryan Ovalle", "id": "6719186000002393001"}),
+            RECORD_ID,
+        )
+        self.assertEqual(payload["Owner"], {"id": "6719186000002393001"})
+
+    def test_an_unapproved_record_falls_back_rather_than_defaulting_to_the_connection(self):
+        for missing in (None, {}, {"name": "Someone"}):
+            payload = build_task_payload(record(Reviewed_By=missing), RECORD_ID)
+            self.assertEqual(payload["Owner"], {"id": FALLBACK_TASK_OWNER_ID})
+
+    def test_the_owner_is_an_id_object(self):
+        payload = build_task_payload(record(), RECORD_ID)
+        self.assertIsInstance(payload["Owner"], dict)
+        self.assertIn("id", payload["Owner"])
+
+    def test_the_due_date_is_two_days_after_the_clock(self):
+        crm = FakeCrm(record())
+        run(crm)
+        self.assertEqual(crm.created_tasks[0]["Due_Date"], "2026-07-21")
+
+    def test_an_unparseable_clock_leaves_the_due_date_unset_not_invented(self):
+        payload = build_task_payload(record(), RECORD_ID, due_date="")
+        self.assertNotIn("Due_Date", payload)
+
+    def test_the_subject_names_the_category_not_the_message_id(self):
+        payload = build_task_payload(
+            record(AI_Category="Quote Request", Email="jane@example.com"), RECORD_ID
+        )
+        self.assertEqual(payload["Subject"], "Follow up: Quote Request - jane@example.com")
+        self.assertNotIn("1784333133430111003", payload["Subject"])
+
+    def test_the_subject_degrades_gracefully_without_a_category_or_sender(self):
+        payload = build_task_payload(record(), RECORD_ID)
+        self.assertEqual(payload["Subject"], "Follow up: AI Recommendation")
+
+    def test_an_oversized_category_still_respects_the_subject_bound(self):
+        payload = build_task_payload(record(AI_Category="c" * 900), RECORD_ID)
+        self.assertLessEqual(len(payload["Subject"]), 255)
 
 
 class TestTaskPayloadProvenance(unittest.TestCase):
