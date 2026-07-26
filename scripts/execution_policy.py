@@ -59,6 +59,7 @@ via the Zoho CRM metadata API. See docs/live_module_inspection_2026-07-19.md.
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 from typing import Any, Protocol
 
 MODULE_API_NAME = "AI_Recommendations"
@@ -107,6 +108,9 @@ POLICY_CHECKS = (
 
 TASK_SUBJECT_MAX_LEN = 255
 TASK_DESCRIPTION_MAX_LEN = 4000
+
+TASK_DUE_DAYS = 2
+FALLBACK_TASK_OWNER_ID = "6719186000002395001"
 REVIEW_NOTES_MAX_LEN = 1000
 FIELD_MAX_LEN = 255
 ERROR_MAX_LEN = 500
@@ -166,6 +170,20 @@ class CrmPort(Protocol):
 
 class Clock(Protocol):
     def now_iso(self) -> str: ...
+
+
+def due_date_from(clock: Clock) -> str:
+    """Task due date: the clock's date plus TASK_DUE_DAYS, as yyyy-MM-dd.
+
+    Derived from the injected clock rather than the wall clock so execution stays
+    deterministic under test. Returns "" if the clock's stamp is unparseable, which
+    leaves Due_Date unset rather than inventing a date.
+    """
+    stamp = text_of(clock.now_iso())[:10]
+    try:
+        return (date.fromisoformat(stamp) + timedelta(days=TASK_DUE_DAYS)).isoformat()
+    except ValueError:
+        return ""
 
 
 def build_execution_key(record_id: str) -> str:
@@ -290,7 +308,9 @@ def is_already_claimed(record: dict[str, Any]) -> bool:
 
 
 
-def build_task_payload(record: dict[str, Any], record_id: str) -> dict[str, Any]:
+def build_task_payload(
+    record: dict[str, Any], record_id: str, due_date: str = ""
+) -> dict[str, Any]:
     """Build the Task from persisted trusted scalars only.
 
     `Raw_Zia_Response` and `Validated_Analysis_JSON` are intentionally not read.
@@ -308,9 +328,16 @@ def build_task_payload(record: dict[str, Any], record_id: str) -> dict[str, Any]
     idempotency_key = field("Ingestion_Key")
     review_notes = sanitize(text_of(record.get("Review_Notes")), REVIEW_NOTES_MAX_LEN)
 
-    subject = sanitize(
-        f"AI Recommendation: follow up on email {message_id}", TASK_SUBJECT_MAX_LEN
-    )
+    ai_category = field("AI_Category")
+    sender_email = field("Email")
+    subject_topic = ai_category if ai_category else "AI Recommendation"
+    subject_text = f"Follow up: {subject_topic}"
+    if sender_email:
+        subject_text = f"{subject_text} - {sender_email}"
+    subject = sanitize(subject_text, TASK_SUBJECT_MAX_LEN)
+
+    reviewed_by_id = text_of((record.get("Reviewed_By") or {}).get("id"))
+    task_owner_id = reviewed_by_id if reviewed_by_id else FALLBACK_TASK_OWNER_ID
 
     description_lines = [
         "Created by the BI1-T110 approved-action executor.",
@@ -337,7 +364,10 @@ def build_task_payload(record: dict[str, Any], record_id: str) -> dict[str, Any]
         "Description": sanitize("\n".join(description_lines), TASK_DESCRIPTION_MAX_LEN),
         "Status": "Not Started",
         "Priority": "Normal",
+        "Owner": {"id": task_owner_id},
     }
+    if due_date:
+        payload["Due_Date"] = due_date
 
     payload[TASK_LINK_FIELD[target_module]] = {"id": target_record_id}
     payload["$se_module"] = target_module
@@ -465,7 +495,7 @@ def execute_approved_recommendation(
     except ExecutionError as exc:
         return _result("failed", reason="claim_failed", error=sanitize_error(str(exc)))
 
-    task_payload = build_task_payload(record, record_id)
+    task_payload = build_task_payload(record, record_id, due_date_from(clock))
     try:
         created = crm.create_record(TASKS_MODULE_API_NAME, task_payload)
         task_id = text_of((created or {}).get("id"))

@@ -34,10 +34,14 @@ review_notes = ifnull(record.get("Review_Notes"),"").toString().trim();
 reviewed_at = ifnull(record.get("Reviewed_At"),"").toString().trim();
 reviewed_by_raw = record.get("Reviewed_By");
 reviewed_by = "";
+reviewed_by_id = "";
 if(reviewed_by_raw != null)
 {
 	reviewed_by = ifnull(reviewed_by_raw.get("name"),"").toString().trim();
+	reviewed_by_id = ifnull(reviewed_by_raw.get("id"),"").toString().trim();
 }
+ai_category = ifnull(record.get("AI_Category"),"").toString().trim();
+sender_email = ifnull(record.get("Email"),"").toString().trim();
 requires_approval_raw = ifnull(record.get("Requires_Approval"),"").toString().trim();
 created_by_ai_raw = ifnull(record.get("Created_By_AI"),"").toString().trim();
 requires_approval = requires_approval_raw == "true" || requires_approval_raw == "True";
@@ -245,7 +249,16 @@ if(reviewed_at.length() > 255)
 {
 	reviewed_at = reviewed_at.subString(0,254);
 }
-subject = "AI Recommendation: follow up on email " + message_id;
+subject_topic = ai_category;
+if(subject_topic == "")
+{
+	subject_topic = "AI Recommendation";
+}
+subject = "Follow up: " + subject_topic;
+if(sender_email != "")
+{
+	subject = subject + " - " + sender_email;
+}
 if(subject.length() > 255)
 {
 	subject = subject.subString(0,254);
@@ -265,11 +278,22 @@ if(description.length() > 4000)
 {
 	description = description.subString(0,3999);
 }
+task_due_days = 2;
+fallback_task_owner_id = "6719186000002395001";
+task_owner_id = reviewed_by_id;
+if(task_owner_id == "")
+{
+	task_owner_id = fallback_task_owner_id;
+}
+task_owner = Map();
+task_owner.put("id",task_owner_id);
 task = Map();
 task.put("Subject",subject);
 task.put("Description",description);
 task.put("Status","Not Started");
 task.put("Priority","Normal");
+task.put("Owner",task_owner);
+task.put("Due_Date",zoho.currentdate.addDay(task_due_days).toString("yyyy-MM-dd"));
 target_lookup = Map();
 target_lookup.put("id",target_record_id);
 if(target_module == "Contacts")
