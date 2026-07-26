@@ -6,7 +6,7 @@
 
 Zoho Task ID: 2543412000001583003
 
-**Last updated:** 2026-07-25
+**Last updated:** 2026-07-26
 
 Canonical current-state file:
 
@@ -483,24 +483,43 @@ body; confirm the next DMARC report stops at the Processing Gate with
 `skip_reason = "automated_sender"` and produces no recommendation or Cliq card; then send
 one ordinary external inquiry and confirm it still passes (the over-matching check).
 
-**Existing junk not cleaned up.** The three Leads above and their `AI_Recommendations`
-records remain in CRM. Record deletion is Tier 3 (Bill only), so they were left alone —
-either flag them to Bill or set `Lead_Status = Junk Lead`, which Blake can do directly.
+**Existing junk — resolved 2026-07-25.** All three Leads and their `AI_Recommendations`
+records are gone; COQL on their exact ids returns empty, as does any `Email like '%dmarc%'`
+search. They were swept up in Blake's own between-run cleanup rather than deleted
+deliberately, so no Tier 3 escalation was needed. The Leads module now holds **7 records,
+all legitimate** (Voltify, thelithium.com, Network Environments, and four Apr-2025 referral
+Leads). No DMARC Lead has appeared since the gate deployed — weak positive evidence, not
+proof, since it is not visible from CRM whether a report actually arrived in that window.
+
+Cosmetic residue: Lead `6719186000003484001` carries `Company = "thelithium.com"`, the
+pre-extraction email-domain fallback. Only fixable by hand — the matched path never updates
+an existing record (see the extraction gap entry above).
 
 ## NEXT SESSION — START HERE (2026-07-25)
 
 ### Where the project actually is
 
-The unmatched-sender path is **live and working end to end**, verified today on real
-records: an inbound email creates a `Pending Review` recommendation → approval creates the
-Lead → the executor creates a Task linked to it → the source email is associated to the
-Lead. Live proof: recommendation `6719186000003561012`, Lead `6719186000003602002`, Task
-`6719186000003583003`, Task owner Blake, due Jul 27, email "TEST" in the Lead's Emails
-related list.
+**The email→CRM slice of BI1-T110 is functionally complete and live-verified on every
+path.** Approve creates a fully populated Lead + a named, dated, correctly-owned Task with
+the source email attached; reject creates nothing. Extraction pulls 15 fields from one
+email including title, phone and full postal address. See the two entries at the top of this
+file for the proof records.
+
+**What that does *not* mean.** `TASK.md` scopes execution into **CRM / Meeting / WorkDrive /
+QTS tasks / Projects**. Only the CRM Task target is built. Meeting, WorkDrive, QTS quotes and
+Projects have no code, no plan document, and no entry anywhere in this file — they have
+quietly fallen out of the working definition of the task rather than being deferred by
+decision. `next_enhancement_plan.md` defers Deal-via-QTS explicitly; the other three are
+simply absent.
+
+**Open question for Blake:** is T110 complete at CRM Task, or does it still owe the other
+four execution targets? That answer decides whether this project is near done or roughly
+half done, and nothing else in this file resolves it.
 
 ### Deployed to live Zoho (done, working)
 
-- Automated-sender gate (DMARC/no-reply) — awaiting a natural robot email to confirm.
+- Automated-sender gate (DMARC/no-reply) — no junk Lead has appeared since; see the
+  automated-sender entry above.
 - Model C deferred lead: `ensure_crm_match` (read-only), `materialize_pending_lead`,
   `build_crm_context` (+`pending_contact`), tagged validator, `persist_recommendation`.
 - Approval Flow blocks: `materialize_pending_lead` → `associate_email_to_crm_record` →
@@ -533,12 +552,34 @@ related list.
 3. ~~Company extraction retest after the Zia agent change.~~ **Done** — see the reference
    result at the top of this file.
 
+### The next real problem — company identity has no join key
+
+Extraction is now good enough that the bottleneck has moved. A real business email states
+its company **two different ways** — trading name in prose, legal entity in the signature —
+and both are correct. The live proof, 2026-07-25: the Northgate test stated
+`Northgate Fleet Systems` in the body and `Northgate Fleet Systems LLC` in the signature,
+and Zia chose the legal entity. Applied to a real sender this produces a **duplicate
+Account at Convert**, next to the one already in CRM.
+
+The sender is not being vague. A genuine inbound (Bashar Khasawneh, Forward Engineering,
+2026-06-17) supplied `forward-engineering.com` **three times** — From address, signature
+email, signature website — while stating the company as both `Forward Engineering` and
+`Forward Engineering North America LLC`. The domain is the unambiguous key and it cannot
+vary.
+
+We do not use it. `Account.Email_Domain` is **null on all 80 Accounts** (`Website` too —
+confirmed null on Forward Engineering), so `resolve_crm_match` stage 3 never fires. A new
+person at a known company becomes a brand-new Lead, and a company named two ways becomes
+two Accounts.
+
+**This is now the highest-value remaining work, ahead of any further extraction.** Better
+extraction into a system that cannot match does not reduce duplication — it produces
+better-worded duplicates. Blake's approach: backfill `Email_Domain` from existing Contact
+email addresses per Account, which needs no external data and no guessing. Blake declined to
+start it on 2026-07-25; recorded here so the reasoning is not lost.
+
 ### Known open defects / gaps
 
-- **`Email_Domain` is null on all 80 Accounts**, so `resolve_crm_match` stage 3
-  (Account-by-domain) never matches in production. A new person at a known company becomes
-  a brand-new Lead. Highest-value follow-up. Blake's approach: backfill from Zoho Mail
-  correspondence.
 - **Thread preservation is a requirement, not a nice-to-have** (Blake, 2026-07-25) — see
   the Connectedness backlog section. Only the first message of a chain is attached today;
   attachments are not handled at all.
@@ -557,39 +598,30 @@ related list.
 
 ### Repo state
 
-**273 tests pass, `ruff` clean, working tree clean.** All of 2026-07-25's work is
-committed and pushed to `bi1-t110/model-c-completion-and-task-quality` as six commits, and
-PR #3 shows them as separate stages:
+**295 tests pass, `ruff` clean under both 0.15.22 and 0.16.0, working tree clean.**
 
-| Commit | Change |
-| --- | --- |
-| `769762c` | `refactor(scripts)`: merge `single_path/` into `scripts/` |
-| `5f0135b` | `fix(ingestion)`: stop automated senders creating CRM Leads |
-| `ca7a520` | `fix(form)`: render form body newlines instead of literal `\n` |
-| `2c3ff1c` | `feat(ingestion)`: deferred Lead, email association, contact extraction |
-| `8770526` | `feat(executor)`: assign, name and date the created Task |
-| `8e11ef6` | `docs`: retire superseded docs, split STATUS, add merge checklist |
+- **PR #3 — MERGED** to `main` on 2026-07-26 with `--merge`, preserving nine commits so the
+  history bisects. Delivered Model C completion, the automated-sender gate, the executor
+  Task fixes, and the repo tidy-up.
+- **PR #4 — OPEN** on `bi1-t110/full-fidelity-extraction`, 11/11 checks green. Delivers the
+  13-field signature extraction, the signature-over-envelope precedence fix, the
+  `Designation` API-name correction, the Task subject naming the person, and the
+  `AI_Summary` Description source.
 
-The final tree is byte-identical to the single squashed commit reviewed earlier (tree
-`666c893`) — the split changed history, not content. Each commit was checked out and its
-own suite run: 233 → 238 → 240 → 273 → 273 → 273, all passing, so the history bisects
-cleanly. Pushed with `--force-with-lease`.
+**CI note.** The `python-quality` workflow installs the *latest* ruff rather than a pinned
+version, so an upstream release can turn a green branch red without a code change — that is
+exactly what happened on 2026-07-26 when 0.16.0 broadened the default rule set and surfaced
+7 pre-existing findings. Consider pinning `ruff==` in
+`.github/workflows/python-quality.yml`.
 
-`2c3ff1c` deliberately bundles three changes — Model C deferred leads, email association,
-and contact extraction — because they edit the same four functions and no on-disk snapshot
-of the intermediate Model C state existed to split against. Its commit message states the
-three parts and why.
+**`validate-scaffold` had never passed** before 2026-07-26. `docs/CURRENT_HANDOFF.md` is a
+required lifecycle artifact; it was deleted from `main` on 2026-07-24, and even before that
+it lacked the generator/task/version marker comments the validator greps for. Restored as a
+pointer to this file — its content stays consolidated here by decision.
 
-`scripts/single_path/` was merged into `scripts/`, so every function now lives in one
-directory.
-
-**Merge:** `gh pr merge 3 --squash --delete-branch`. Given the history is now meaningful,
-`--merge` or `--rebase` preserves the six commits; `--squash` collapses them back to one.
-
-A new guard test (`TestDelugeVariablesAreDefined`) scans every `.deluge` file for reads of
+A guard test (`TestDelugeVariablesAreDefined`) scans every `.deluge` file for reads of
 undefined variables — added after a live `Variable 'parsed' is not defined` error that the
-string-matching tests could not catch because the assertion pinned the same typo.
-
+string-matching tests could not catch, because the assertion pinned the same typo.
 ### B. GitHub contribution attribution (per Blake, 2026-07-24)
 
 Commits are authored `blakeallard95@gmail.com`; repo is private under `blake-bevco-tech`.
