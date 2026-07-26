@@ -18,7 +18,7 @@ a function and putting the CRM persistence field-map inside a function. It reduc
 blocks to ~26 and eliminates the per-route Create-block duplication that caused every
 cross-route variable contamination bug.
 
-The four functions live in `scripts/single_path/`. This is a from-scratch restructure of
+The four functions live in `scripts/`. This is a from-scratch restructure of
 the front half of the flow, not an in-place tweak — it is a proven drop-in candidate,
 not yet swapped in for the live flow.
 

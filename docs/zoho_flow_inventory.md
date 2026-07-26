@@ -49,24 +49,24 @@ Its purpose is to stop the automation logic from being islanded inside Zoho Flow
 | `execute_approved_recommendation` | `(string ai_recommendation_record_id)` → map | LIVE / REPO | `scripts/execute_approved_recommendation.deluge` |
 | `build_form_intake_payload` | `(string form_id, string submitter_email, string first_name, string last_name, string company, string phone, string area_of_interest, string comments, string submitted_at_ms, string intake_address)` → map | LIVE / REPO | `scripts/build_form_intake_payload.deluge` |
 
-### Single-path refactor functions (`scripts/single_path/`)
+### Single-path refactor functions (`scripts/`)
 
 These back the consolidated one-path flow proven end-to-end on 2026-07-22. See
 `docs/single_path_refactor_spec.md`.
 
 | Function | Signature | State | Source |
 | --- | --- | --- | --- |
-| `resolve_crm_match` | `(string from_email, string from_domain)` → map | REPO, single-path | `scripts/single_path/resolve_crm_match.deluge` |
-| `fetch_open_related` | `(map match)` → map | REPO, single-path | `scripts/single_path/fetch_open_related.deluge` |
-| `validate_zia_analysis_response_tagged` | `(string raw_response, map trusted_request)` → map | REPO, single-path | `scripts/single_path/validate_zia_analysis_response_tagged.deluge` |
-| `persist_recommendation` | `(map validated)` → map | REPO, single-path | `scripts/single_path/persist_recommendation.deluge` |
+| `resolve_crm_match` | `(string from_email, string from_domain)` → map | REPO, single-path | `scripts/resolve_crm_match.deluge` |
+| `fetch_open_related` | `(map match)` → map | REPO, single-path | `scripts/fetch_open_related.deluge` |
+| `validate_zia_analysis_response_tagged` | `(string raw_response, map trusted_request)` → map | REPO, single-path | `scripts/validate_zia_analysis_response_tagged.deluge` |
+| `persist_recommendation` | `(map validated)` → map | REPO, single-path | `scripts/persist_recommendation.deluge` |
 
 ### Notes
 
 1. The stale `persist_ai_recommendation.deluge` draft (wrote ~20 non-existent fields,
    wrong API names) was **retired and deleted** on 2026-07-22. The live 4-branch flow
    persists with route-specific Zoho CRM **Create or update module entry** actions; the
-   single-path flow persists with `single_path/persist_recommendation` (a V8
+   single-path flow persists with `persist_recommendation` (a V8
    `invokeurl` create — `Validated_Analysis_JSON` is capped at 2000 chars and
    `Raw_Zia_Response` is stored separately, not embedded).
 
@@ -219,4 +219,4 @@ only — see `execute_approved_recommendation_flow.md`.
    recorded today.
 2. Record deployment/version notes per function once the Flow structure is frozen.
 3. If the single-path flow is adopted as live, mark the 4-branch flow retired here and
-   promote `scripts/single_path/` functions from "single-path" to "LIVE".
+   promote `scripts/` functions from "single-path" to "LIVE".

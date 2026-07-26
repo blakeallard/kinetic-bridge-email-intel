@@ -60,7 +60,7 @@ class TestRecommendationDuplicateLookup(unittest.TestCase):
 class TestRecommendationPersist(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source = (SCRIPTS / "single_path" / "persist_recommendation.deluge").read_text()
+        cls.source = (SCRIPTS / "persist_recommendation.deluge").read_text()
 
     def test_writes_the_key_to_the_unique_ingestion_field(self):
         self.assertIn('record.put("Ingestion_Key",ifnull(validated.get("idempotency_key"),""))', self.source)
@@ -297,7 +297,7 @@ class TestEnsureCrmMatch(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = (
-            SCRIPTS / "single_path" / "ensure_crm_match.deluge"
+            SCRIPTS / "ensure_crm_match.deluge"
         ).read_text()
 
     def test_takes_the_normalized_message_and_the_resolve_result(self):
