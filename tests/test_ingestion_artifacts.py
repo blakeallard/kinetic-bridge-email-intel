@@ -246,6 +246,26 @@ class TestFormIntakeSenderResolution(unittest.TestCase):
         self.assertIn('normalized.put("relay_email",relay_email)', self.source)
 
 
+class TestFormBodyNewlines(unittest.TestCase):
+    """Deluge does not interpret a literal backslash-n; both form adapters must use hexToText."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.relay = (SCRIPTS / "build_form_intake_payload.deluge").read_text()
+        cls.entry = (SCRIPTS / "normalize_form_entry.deluge").read_text()
+
+    def test_neither_form_adapter_emits_a_literal_backslash_n(self):
+        for name, source in (("build_form_intake_payload", self.relay),
+                             ("normalize_form_entry", self.entry)):
+            self.assertNotIn("\\n", source, f"{name} still builds a literal backslash-n")
+
+    def test_both_form_adapters_join_on_a_real_newline(self):
+        for source in (self.relay, self.entry):
+            self.assertIn('new_line = hexToText("0A")', source)
+            self.assertIn("body_lines.toString(new_line)", source)
+            self.assertIn("body_text + new_line + new_line + comment_text", source)
+
+
 class TestFormIntakePayloadBuilder(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

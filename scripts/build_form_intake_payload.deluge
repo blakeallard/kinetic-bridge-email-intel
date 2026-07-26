@@ -64,10 +64,11 @@ if(interest != "")
 {
 	body_lines.add("Area of Interest: " + interest);
 }
-body_text = body_lines.toString("\n");
+new_line = hexToText("0A");
+body_text = body_lines.toString(new_line);
 if(comment_text != "")
 {
-	body_text = body_text + "\n\n" + comment_text;
+	body_text = body_text + new_line + new_line + comment_text;
 }
 summary_text = comment_text;
 if(summary_text == "")
