@@ -157,9 +157,51 @@ class TestSafetyInvariants(unittest.TestCase):
             self.assertNotIn(f'record.get("{field}")', CODE,
                              f"{field} must never be read by the executor")
 
-    def test_deluge_creates_only_tasks(self):
+    def test_deluge_creates_only_tasks_and_meetings(self):
+        """The executor's blast radius is deliberately two modules and no more.
+
+        Events joined Tasks on 2026-07-26 so a "Meeting Request" arrives with the
+        participants, related record and the customer's stated preference already
+        filled in. Both are internal activity records: neither notifies the
+        customer, and an Event only reaches anyone when a human opens it and
+        sends the invite. Adding any further module here is a policy decision,
+        not a refactor — which is why this asserts equality rather than
+        membership.
+        """
         created = set(re.findall(r'zoho\.crm\.createRecord\("(\w+)"', CODE))
-        self.assertEqual(created, {"Tasks"})
+        self.assertEqual(created, {"Tasks", "Events"})
+
+    def test_the_meeting_is_created_only_for_a_meeting_request(self):
+        self.assertIn('if(ai_category == "Meeting Request")', CODE)
+
+    def test_the_meeting_never_proposes_a_time_as_confirmed(self):
+        """The AI does not pick meeting times. The slot is a placeholder the
+        human corrects, and the Description says so before anything else.
+        """
+        self.assertIn(
+            'event_description = "Proposed time only - confirm with the customer'
+            ' before sending the invite."',
+            CODE,
+        )
+        self.assertIn("Customer's stated preference, from the source email:", CODE)
+
+    def test_a_failed_meeting_create_never_blocks_the_task(self):
+        """The Task is the claimed critical path; the Event is best-effort.
+        A meeting failure must not strand a claimed recommendation.
+        """
+        self.assertIn("catch (event_create_error)", CODE)
+        event_create = CODE.index('zoho.crm.createRecord("Events",event)')
+        task_create = CODE.index('zoho.crm.createRecord("Tasks",task)')
+        self.assertLess(event_create, task_create)
+
+    def test_the_meeting_is_covered_by_the_same_claim_as_the_task(self):
+        """No Executed_Event_ID field exists, so re-run safety comes from the
+        claim rather than a stored id: a second caller never reaches either
+        create. Adding a second Event on replay would be the failure mode.
+        """
+        claim = CODE.index("If-Unmodified-Since")
+        event_create = CODE.index('zoho.crm.createRecord("Events",event)')
+        self.assertLess(claim, event_create)
 
     def test_deluge_updates_only_the_recommendation_module(self):
         updated = set(re.findall(r'zoho\.crm\.updateRecord\((\w+)', CODE))

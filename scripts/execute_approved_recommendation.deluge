@@ -329,6 +329,54 @@ else
 	task.put("What_Id",target_lookup);
 }
 task.put("$se_module",target_module);
+new_event_id = "";
+if(ai_category == "Meeting Request")
+{
+	meeting_lead_days = 2;
+	meeting_start_clock = "10:00:00";
+	meeting_end_clock = "10:30:00";
+	meeting_offset = zoho.currenttime.toString("XXX");
+	meeting_date = zoho.currentdate.addDay(meeting_lead_days).toString("yyyy-MM-dd");
+	event_participants = List();
+	if(sender_email != "")
+	{
+		sender_participant = Map();
+		sender_participant.put("participant",sender_email);
+		sender_participant.put("type","email");
+		event_participants.add(sender_participant);
+	}
+	event_description = "Proposed time only - confirm with the customer before sending the invite.";
+	event_description = event_description + new_line + new_line + "Customer's stated preference, from the source email:";
+	event_description = event_description + new_line + review_notes;
+	event = Map();
+	event.put("Event_Title",subject);
+	event.put("Start_DateTime",meeting_date + "T" + meeting_start_clock + meeting_offset);
+	event.put("End_DateTime",meeting_date + "T" + meeting_end_clock + meeting_offset);
+	event.put("Description",event_description);
+	event.put("Owner",task_owner);
+	event.put("Participants",event_participants);
+	if(target_module == "Contacts")
+	{
+		event.put("Who_Id",target_lookup);
+	}
+	else
+	{
+		event.put("What_Id",target_lookup);
+	}
+	event.put("$se_module",target_module);
+	try
+	{
+		event_response = zoho.crm.createRecord("Events",event);
+		if(event_response != null)
+		{
+			new_event_id = ifnull(event_response.get("id"),"").toString().trim();
+		}
+	}
+	catch (event_create_error)
+	{
+		new_event_id = "";
+	}
+}
 task_response = zoho.crm.createRecord("Tasks",task);
 new_task_id = "";
 if(task_response != null)
@@ -371,6 +419,7 @@ if(success_response == null || ifnull(success_response.get("id"),"").toString() 
 	return result;
 }
 result.put("status","executed");
+result.put("event_id",new_event_id);
 result.put("record_id",record_id);
 result.put("executed_task_id",new_task_id);
 result.put("execution_key",execution_key);
