@@ -588,6 +588,13 @@ class TestMaterializePendingLead(unittest.TestCase):
 
 
 class TestCliqNotification(unittest.TestCase):
+    """Guards the rich Cliq review card.
+
+    This function existed only in live Zoho until 2026-07-26 -- the repo held a
+    stale plain-text version, and deploying that copy overwrote the live card.
+    The card is now source-controlled so the drift cannot recur.
+    """
+
     @classmethod
     def setUpClass(cls):
         cls.source = (SCRIPTS / "notify_cliq_new_recommendation.deluge").read_text()
@@ -595,34 +602,78 @@ class TestCliqNotification(unittest.TestCase):
     def test_takes_the_recommendation_record_id(self):
         self.assertTrue(
             self.source.startswith(
-                "void notify_cliq_new_recommendation(string recommendation_id)"
+                "void automation.notify_cliq_new_recommendation(String recommendation_id)"
             )
         )
 
     def test_reads_the_record_from_crm(self):
         self.assertIn(
-            'zoho.crm.getRecordById("AI_Recommendations",rec_id.toLong())', self.source
+            'zoho.crm.getRecordById("AI_Recommendations",recommendation_id.toLong())',
+            self.source,
         )
 
     def test_only_announces_pending_review_records(self):
         self.assertIn('if(status != "Pending Review")', self.source)
-        self.assertIn("return;", self.source)
 
-    def test_posts_to_the_configured_cliq_channel_through_a_connection(self):
+    def test_posts_a_structured_card_not_plain_text(self):
+        """The plain-text regression is what this pins."""
+        self.assertIn('card.put("theme","modern-inline")', self.source)
+        self.assertIn('message.put("card",card)', self.source)
+        self.assertIn('message.put("slides",slides)', self.source)
+        self.assertIn('message.put("buttons",buttons)', self.source)
         self.assertIn(
-            'zoho.cliq.postToChannel("airecommendationstest",message_text,"blake_cliq_connection")',
+            'zoho.cliq.postToChannel("airecommendationstest",message,"blake_cliq_connection")',
             self.source,
         )
+
+    def test_the_card_renders_both_slides(self):
+        for title in ("Recommendation", "Review details"):
+            self.assertIn(f'.put("title","{title}")', self.source)
+        for label in (
+            "Recommended action",
+            "Request type",
+            "Customer request",
+            "Why this is recommended",
+            "AI confidence",
+            "CRM record",
+            "Safety review",
+            "Validation",
+            "Reviewer guidance",
+        ):
+            self.assertIn(f'.put("{label}"', self.source)
+
+    def test_a_meeting_request_adds_guidance(self):
+        """`AI_Category` is a persisted, human-reviewable scalar. Conditioning on
+        it needs no new CRM field. No meeting time is ever proposed by the AI --
+        the human schedules from the record using CRM's native New Meeting.
+        """
+        self.assertIn('if(category == "Meeting Request")', self.source)
+        self.assertIn('.put("Meeting requested"', self.source)
+
+    def test_meeting_guidance_handles_a_deferred_lead(self):
+        """Cliq fires at ingestion, when a deferred lead has no Target_Record_ID
+        yet -- the common case for a new inquiry. Guarding on a matched record
+        suppressed the guidance for exactly the case it was written for.
+        """
+        self.assertIn('if(target_record_url == "")', self.source)
+        self.assertIn("Approve first to create the record", self.source)
+
+    def test_the_category_labels_match_the_live_zia_vocabulary(self):
+        for value in (
+            "Quote Request",
+            "Product Inquiry",
+            "Meeting Request",
+            "Support Request",
+            "Partnership",
+            "Other",
+        ):
+            self.assertIn(f'category_labels.put("{value}"', self.source)
 
     def test_includes_a_clickable_record_link(self):
         self.assertIn(
-            'record_url = "https://crm.zoho.com/crm/org883125891/tab/CustomModule1/" + rec_id',
+            'record_url = "https://crm.zoho.com/crm/org883125891/tab/CustomModule1/"',
             self.source,
         )
-
-    def test_carries_the_trusted_scalar_fields(self):
-        for field in ("Recommendation_Type", "Target_Module", "Target_Record_ID"):
-            self.assertIn(f'record.get("{field}")', self.source)
 
 
 class TestLeadOutboundAdvance(unittest.TestCase):
