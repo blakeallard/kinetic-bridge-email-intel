@@ -353,10 +353,12 @@ def build_task_payload(
         "Reviewer notes:",
         review_notes if review_notes else "(none)",
         "",
-        "This Task was generated only from persisted, human-approved recommendation "
-        "fields. The raw AI response was not interpreted and its instructions were "
-        "not executed. Open the AI Recommendation record to read the original "
-        "analysis.",
+        (
+            "This Task was generated only from persisted, human-approved recommendation "
+            "fields. The raw AI response was not interpreted and its instructions were "
+            "not executed. Open the AI Recommendation record to read the original "
+            "analysis."
+        ),
     ]
 
     payload: dict[str, Any] = {

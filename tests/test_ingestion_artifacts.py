@@ -1,9 +1,9 @@
 """Static regression checks for source-controlled Zoho ingestion functions."""
 
-from pathlib import Path
 import re
 import unittest
-
+from pathlib import Path
+from typing import ClassVar
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "scripts"
@@ -862,7 +862,7 @@ class TestDelugeVariablesAreDefined(unittest.TestCase):
     bound by a `for each` / `catch`.
     """
 
-    BUILTINS = {
+    BUILTINS: ClassVar[set[str]] = {
         "zoho", "Map", "List", "if", "for", "each", "while",
         "try", "catch", "return", "null", "true", "false", "info", "thisapp",
     }
@@ -873,7 +873,7 @@ class TestDelugeVariablesAreDefined(unittest.TestCase):
             source = path.read_text()
             signature = source.split("{", 1)[0]
             known = set(re.findall(r"\b\w+\s+(\w+)\s*[,)]", signature))
-            known |= set(re.findall(r"^\s*(\w+)\s*=", source, re.M))
+            known |= set(re.findall(r"^\s*(\w+)\s*=", source, re.MULTILINE))
             known |= set(re.findall(r"for\s+each\s+(\w+)\s+in", source))
             known |= set(re.findall(r"catch\s*\(\s*(\w+)", source))
             used = set(re.findall(r"\b(\w+)\.get\(", source))

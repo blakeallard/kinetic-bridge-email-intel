@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from execution_policy import (
     ALLOWED_TARGET_MODULES,
+    FALLBACK_TASK_OWNER_ID,
     MAX_EXECUTION_ATTEMPTS,
     POST_CLAIM_FAILURE_REASONS,
     PRE_CLAIM_FAILURE_REASONS,
@@ -25,7 +26,6 @@ from execution_policy import (
     DuplicateKeyError,
     ExecutionError,
     PreconditionFailed,
-    FALLBACK_TASK_OWNER_ID,
     build_execution_key,
     build_task_payload,
     evaluate_policy,
