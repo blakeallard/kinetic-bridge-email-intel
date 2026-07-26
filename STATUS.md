@@ -18,6 +18,158 @@ Current source of truth:
 - Zoho Projects is the source of truth for intake status unless explicitly documented otherwise.
 - Do not modify Zoho runtime systems, Creator, CRM, Books, Flow, Sheet, or WorkDrive unless explicitly approved.
 
+## PROJECT COMPLETION — where BI1-T110 actually stands (2026-07-26)
+
+Scope anchor is `TASK.md`: TeamInbox → Flow triage → CRM context → Zia → `AI_Recommendations`
+approval gate → Flow execution → **CRM / Meeting / WorkDrive / QTS tasks / Projects**.
+
+### Ingestion → approved CRM Task (the core loop)
+
+| # | Part | % | Missing |
+| --- | --- | --- | --- |
+| 1 | TeamInbox → Flow ingestion + gating | 95% | form path still uses the legacy fake-email hop |
+| 2 | Dedup / idempotency | 100% | — |
+| 3 | CRM context lookup (matching) | 65% | Account-by-domain dead (`Email_Domain` null on all 80); no ambiguity detection |
+| 4 | Zia analysis + extraction | 95% | no thread context |
+| 5 | Validation + persist | 100% | — |
+| 6 | Approval gate (record + Blueprint) | 90% | module presentation cleanup |
+| 7 | Cliq review notification | 75% | single channel, no category routing, no owner @mention |
+| 8 | Execution → CRM Task | 100% | — |
+
+### Execution targets named in TASK.md
+
+| Target | % | Note |
+| --- | --- | --- |
+| CRM Task | 100% | live, verified |
+| Meeting | 70% | built 2026-07-26, **not deployed or tested** |
+| WorkDrive | 0% | no code, no plan, no entry anywhere |
+| QTS quote | 0% | no code, no plan |
+| Projects | 0% | no code, no plan |
+
+### Lifecycle beyond the Lead
+
+| Stage | % | Note |
+| --- | --- | --- |
+| Lead → Convert → Contact / Account / Deal | 20% | native + manual; Lead-only fields destroyed at Convert |
+| `Lifecycle_Stage` advancement | 15% | only `Intake` is ever written; the five later stages are unused |
+| Deal ← quote / products | 0% | `Deals.Associated_Products` subform exists, nothing writes it |
+| `First_Quote_Number` / `First_Quote_Created_At` | 0% | fields exist on Leads **and** Contacts, referenced nowhere in the repo |
+
+### Cross-cutting
+
+| Concern | % |
+| --- | --- |
+| Thread continuity | 0% |
+| Attachments | 0% |
+| Cross-record connectedness | 40% |
+| Reporting / cycle-time metrics | 0% |
+
+**Overall: roughly 55%.** The hard half is done — extraction, the safety model, the approval
+gate, idempotency, and every Model C path live-verified. What remains is mostly deterministic
+integration breadth rather than novel work.
+
+**No cycle-time measurement is possible today.** `First_Quote_Created_At` is exactly the field
+that would give email→quote elapsed time and nothing populates it. Same for every stage after
+Intake: no timestamps, so no funnel and no bottleneck visibility.
+
+### The three items that gate most of the rest
+
+1. **`Email_Domain` backfill** — unblocks Account matching and stops duplicate Accounts at
+   Convert. See "The next real problem" below.
+2. **Thread continuity** — unblocks every middle-stage feature. Replies currently arrive as
+   orphans, and a sender who already has a record takes the matched path where extraction is
+   skipped entirely.
+3. **The scope decision on WorkDrive / QTS / Projects** — three of the five execution targets
+   named in `TASK.md` are at zero. Deal-via-QTS is deferred by decision in
+   `next_enhancement_plan.md`; the other two are simply absent. This decides whether the
+   project is near done or about half done.
+
+## Done — meeting requests pre-fill a CRM Meeting (repo, 2026-07-26)
+
+**Decision (Blake, 2026-07-26): Cliq notifies, CRM is where work happens.** No state is
+duplicated in Cliq, no scheduling UI, no approve/reject from chat — every card is read-only
+context plus a deep link, and the employee's next click is always into CRM. This ruled out a
+dedicated meeting bot and per-module bots (Lead bot / Deal bot / Task bot): modules are where
+data lives, not what people do, and one inquiry creates a Lead *and* a Task *and* later a
+Deal, so splitting by module multiplies notifications instead of reducing them.
+
+**Chain, all live-verified except the last step:**
+
+1. Zia classifies `intent.category` = `Meeting Request` (agent v6 constrains it to six values:
+   Quote Request · Product Inquiry · Meeting Request · Support Request · Partnership · Other).
+2. `AI_Category` persists that scalar — no new CRM field was needed, which matters because a
+   new field is Tier 3 and would have waited on Bill.
+3. The Cliq card gains a **Meeting requested** row. Confirmed live 2026-07-26.
+4. On approval the executor creates a CRM **Event** alongside the Task.
+
+**The Event is pre-filled, but the AI never picks the time.** Zoho Events require a start, so
+the slot is a placeholder at **+2 days, 10:00–10:30** in the org offset, and the Description
+opens with *"Proposed time only - confirm with the customer before sending the invite."*
+followed by the customer's own words carried from `Review_Notes` — on the live test that was
+*"30-minute call next week, Tuesday or Wednesday afternoon"*, which Zia extracted without being
+asked to. Participants carry the sender address; Owner and related record match the Task.
+
+**Safety properties, all pinned by tests:**
+
+- The executor's blast radius is now exactly **two** modules, `Tasks` and `Events`, asserted by
+  equality so a third is a policy decision rather than a refactor. Both are internal activity
+  records: neither notifies the customer, and an Event reaches nobody until a human sends the
+  invite.
+- The Event is created **inside the claimed section and before the Task**, so replay safety
+  comes from the existing `If-Unmodified-Since` claim. There is no `Executed_Event_ID` field
+  and adding one would be Tier 3; the claim already guarantees a second caller reaches neither
+  create.
+- A failed Event create is swallowed and **never blocks the Task**, which is the claimed
+  critical path. A meeting failure must not strand a claimed recommendation.
+
+**Known limit:** participants carry the sender only. The full thread participant set needs
+thread continuity, so a meeting pre-filled from a single message will miss anyone who joined
+the chain earlier.
+
+**Not deployed:** `execute_approved_recommendation`.
+
+## Fixed — the Cliq card was a live-only artifact and got overwritten (2026-07-26)
+
+**`notify_cliq_new_recommendation` existed in a richer form in live Zoho than in the repo.**
+The repo held a plain-text `postToChannel` version — its only commit — while live ran a
+structured card with a theme, two slides (Recommendation / Review details) and buttons.
+Deploying the repo copy replaced the card with plain text.
+
+This is **repo-behind-live** drift, the opposite direction from the `REPO-AHEAD` markers in
+`zoho_flow_inventory.md`, and nothing in the repo was watching for it. The live source is now
+committed verbatim and tests pin the card/slides/buttons shape so the regression cannot repeat.
+
+Two fixes on top of the recovered version:
+
+- **Meeting guidance row**, described above. The first attempt guarded on having a matched CRM
+  record — but Cliq fires at *ingestion*, where a deferred lead has no `Target_Record_ID` yet,
+  which is the common case for a new inquiry. The guidance was therefore suppressed for exactly
+  the case it was written for. It now degrades to *"Approve first to create the record, then
+  schedule from it."*
+- **`category_labels` rebuilt** for the live Zia vocabulary. The map still held snake_case keys
+  (`request_information`, `quote_request`) from before the agent constrained
+  `intent.category`, so every lookup missed and fell through to the raw string.
+
+**Cosmetic, not fixed:** `Safety review` shows **Insufficient Context** on every deferred lead,
+because the recommended action needs a CRM record that does not exist yet. Correct per the agent
+rules, but it fires on every new inquiry and will read as noise.
+
+**Not deployed:** `notify_cliq_new_recommendation`.
+
+## Open — category routing for Cliq (blocked on an org decision, 2026-07-26)
+
+One channel currently receives every category, which makes it noise and defeats the review gate.
+The routing key already exists and needs no new field: `AI_Category` is a fixed six-value
+vocabulary and `Routed_Mailbox` records which inbox was hit.
+
+Agreed shape: route **channel** on `AI_Category`, and **@mention** on the record owner. Division
+of roles happens through channel membership — a real org chart — not through multiple bots.
+An unmapped category must fall through to a catch-all; a missed routing rule must never mean a
+missed customer.
+
+**Blocked on Blake/Bill/Bryan:** who owns which category. That is an org decision, not a build
+decision, and nothing can be wired until it is answered.
+
 ## PASSED — rejection creates nothing (2026-07-25)
 
 **The last unproven claim in Model C, and the entire justification for deferring Lead
@@ -539,8 +691,13 @@ half done, and nothing else in this file resolves it.
 
 ### NOT deployed — repo is ahead of live
 
-1. `execute_approved_recommendation` — Task subject now names the target record rather than
-   the sender address. Everything else in the deploy set is live.
+1. `execute_approved_recommendation` — Task subject names the target record rather than the
+   sender address, **and** a `Meeting Request` now pre-fills a CRM Event.
+2. `notify_cliq_new_recommendation` — the recovered rich card, the meeting-guidance row, and
+   the rebuilt `category_labels` map.
+
+Everything else in the deploy set is live, including Zia agent **version 6** (six-value
+`intent.category` vocabulary plus the 13-field `contact` object).
 
 ### Tests still unrun (Blake)
 
@@ -622,6 +779,7 @@ pointer to this file — its content stays consolidated here by decision.
 A guard test (`TestDelugeVariablesAreDefined`) scans every `.deluge` file for reads of
 undefined variables — added after a live `Variable 'parsed' is not defined` error that the
 string-matching tests could not catch, because the assertion pinned the same typo.
+
 ### B. GitHub contribution attribution (per Blake, 2026-07-24)
 
 Commits are authored `blakeallard95@gmail.com`; repo is private under `blake-bevco-tech`.
