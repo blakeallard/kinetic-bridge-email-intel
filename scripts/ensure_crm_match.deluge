@@ -24,7 +24,7 @@ if(sender_name != "")
 	}
 	else
 	{
-		last_name = sender_name;
+		first_name = sender_name;
 	}
 }
 company_name = structured_company;
@@ -58,6 +58,7 @@ pending_contact.put("company",company_name);
 pending_contact.put("email",safe_email);
 pending_contact.put("phone",structured_phone);
 pending_contact.put("lead_source",lead_source);
+pending_contact.put("area_of_interest",ifnull(normalized.get("area_of_interest"),"").toString().trim());
 match_status = "pending_lead";
 if(safe_email == "")
 {

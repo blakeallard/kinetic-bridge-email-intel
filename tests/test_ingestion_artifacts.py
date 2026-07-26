@@ -426,7 +426,13 @@ class TestEnsureCrmMatch(unittest.TestCase):
     def test_still_derives_what_it_can_without_the_model(self):
         self.assertIn("company_name = structured_company", self.source)
         self.assertIn('company_index = body_text.indexOf("Company:")', self.source)
-        self.assertIn("last_name = sender_name", self.source)
+
+    def test_a_single_token_sender_name_is_a_first_name_not_a_surname(self):
+        self.assertNotIn("last_name = sender_name;", self.source)
+        self.assertIn("last_name = sender_name.subString(", self.source)
+        single_token_branch = self.source.index("first_name = sender_name;")
+        multi_token_branch = self.source.index("first_name = name_parts.get(0).trim()")
+        self.assertLess(multi_token_branch, single_token_branch)
 
 
 class TestMaterializePendingLead(unittest.TestCase):
@@ -459,7 +465,78 @@ class TestMaterializePendingLead(unittest.TestCase):
     def test_returns_an_association_payload_for_the_new_lead(self):
         self.assertIn('action_map.get("pending_message")', self.source)
         self.assertIn('result.put("normalized_message",pending_message)', self.source)
+
+    def test_description_comes_from_the_carried_summary_not_the_raw_body(self):
+        self.assertIn('lead_description = ifnull(pending_message.get("summary")', self.source)
+        for forbidden in ('pending_message.get("body_html")', "raw_zia_response"):
+            self.assertNotIn(forbidden, self.source)
+
+    def test_description_is_capped_to_the_crm_field_length(self):
+        self.assertIn("if(lead_description.length() > 32000)", self.source)
+        self.assertIn("lead_description.subString(0,32000)", self.source)
+
+    def test_website_prefers_a_stated_value_over_the_email_domain(self):
+        stated = self.source.index('lead_website = ifnull(pending.get("website")')
+        fallback = self.source.index('if(lead_website == "")')
+        self.assertLess(stated, fallback)
+
+    def test_website_falls_back_to_the_sender_domain(self):
+        self.assertIn("email_parts = lead_email.toList(\"@\")", self.source)
+        self.assertIn("if(email_parts.size() == 2)", self.source)
+
+    def test_blank_optional_fields_are_omitted_rather_than_written_empty(self):
+        for guard in ('if(lead_website != "")', 'if(lead_description != "")'):
+            self.assertIn(guard, self.source)
+
+    def test_industry_is_never_written(self):
+        self.assertNotIn("Industry", self.source)
+
+    def test_lifecycle_stage_is_the_constant_intake(self):
+        self.assertIn('lead_map.put("Lifecycle_Stage","Intake")', self.source)
+
+    def test_routed_mailbox_comes_from_the_carried_recipient(self):
+        self.assertIn(
+            'routed_mailbox = ifnull(pending_message.get("to_email")', self.source
+        )
+        self.assertIn("if(routed_mailbox.length() > 255)", self.source)
+        self.assertIn('if(routed_mailbox != "")', self.source)
+
+    def test_area_of_interest_is_whitelisted_against_the_live_picklist(self):
+        for allowed in (
+            "Service/Advisory",
+            "Battery Management Systems",
+            "Low Voltage Manufacturing",
+            "Cell/Production Distribution",
+            "Other",
+        ):
+            self.assertIn(f'allowed_areas.add("{allowed}")', self.source)
+        self.assertNotIn('allowed_areas.add("-None-")', self.source)
+        self.assertIn("if(!allowed_areas.contains(area_of_interest))", self.source)
+
+    def test_area_of_interest_is_carried_from_the_structured_form_field(self):
+        matcher = (SCRIPTS / "ensure_crm_match.deluge").read_text()
+        self.assertIn(
+            'pending_contact.put("area_of_interest",'
+            'ifnull(normalized.get("area_of_interest"),"").toString().trim())',
+            matcher,
+        )
+
+    def test_the_association_payload_is_still_emitted(self):
         self.assertIn('result.put("crm_context",association_context)', self.source)
+
+    def test_every_return_path_carries_the_association_maps(self):
+        """A skipped/blocked return must still emit both maps, or the next Flow
+        block receives null and `ifnull(x.get(...))` throws before it can guard —
+        observed live 2026-07-25 as "Value is empty and 'get' function cannot be
+        applied at line number 7" on a target_already_set rerun.
+        """
+        init = self.source.index('result = Map();')
+        seeded_message = self.source.index('result.put("normalized_message",Map());')
+        seeded_context = self.source.index('result.put("crm_context",Map());')
+        first_return = self.source.index("return result;")
+        self.assertLess(init, seeded_message)
+        self.assertLess(seeded_message, seeded_context)
+        self.assertLess(seeded_context, first_return)
 
     def test_the_association_context_satisfies_the_associate_function_guard(self):
         guard = (

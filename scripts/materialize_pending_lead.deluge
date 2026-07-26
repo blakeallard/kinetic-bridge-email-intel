@@ -1,6 +1,8 @@
 map materialize_pending_lead(string ai_recommendation_record_id)
 {
 result = Map();
+result.put("normalized_message",Map());
+result.put("crm_context",Map());
 module_api_name = "AI_Recommendations";
 record_id = ifnull(ai_recommendation_record_id,"").toString().trim();
 if(record_id == "")
@@ -79,6 +81,41 @@ if(lead_email == "")
 	result.put("record_id",record_id);
 	return result;
 }
+pending_message = ifnull(action_map.get("pending_message"),Map());
+lead_description = ifnull(pending_message.get("summary"),"").toString().trim();
+if(lead_description.length() > 32000)
+{
+	lead_description = lead_description.subString(0,32000);
+}
+lead_website = ifnull(pending.get("website"),"").toString().trim();
+if(lead_website == "")
+{
+	email_parts = lead_email.toList("@");
+	if(email_parts.size() == 2)
+	{
+		lead_website = email_parts.get(1).trim();
+	}
+}
+if(lead_website.length() > 255)
+{
+	lead_website = "";
+}
+routed_mailbox = ifnull(pending_message.get("to_email"),"").toString().trim();
+if(routed_mailbox.length() > 255)
+{
+	routed_mailbox = "";
+}
+allowed_areas = list();
+allowed_areas.add("Service/Advisory");
+allowed_areas.add("Battery Management Systems");
+allowed_areas.add("Low Voltage Manufacturing");
+allowed_areas.add("Cell/Production Distribution");
+allowed_areas.add("Other");
+area_of_interest = ifnull(pending.get("area_of_interest"),"").toString().trim();
+if(!allowed_areas.contains(area_of_interest))
+{
+	area_of_interest = "";
+}
 lead_owner_id = "6719186000002395001";
 lead_map = Map();
 lead_map.put("Last_Name",last_name);
@@ -94,6 +131,23 @@ if(phone_number != "")
 }
 lead_map.put("Lead_Source",lead_source);
 lead_map.put("Lead_Status","Not Contacted");
+if(lead_website != "")
+{
+	lead_map.put("Website",lead_website);
+}
+if(lead_description != "")
+{
+	lead_map.put("Description",lead_description);
+}
+lead_map.put("Lifecycle_Stage","Intake");
+if(routed_mailbox != "")
+{
+	lead_map.put("Routed_Mailbox",routed_mailbox);
+}
+if(area_of_interest != "")
+{
+	lead_map.put("Area_of_Interest",area_of_interest);
+}
 owner_map = Map();
 owner_map.put("id",lead_owner_id);
 lead_map.put("Owner",owner_map);
@@ -126,7 +180,6 @@ result.put("status","created");
 result.put("record_id",record_id);
 result.put("lead_id",new_lead_id);
 result.put("target_record_id",new_lead_id);
-pending_message = ifnull(action_map.get("pending_message"),Map());
 association_context = Map();
 association_context.put("match_status","matched");
 association_context.put("matched_module","Leads");

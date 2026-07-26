@@ -18,6 +18,143 @@ Current source of truth:
 - Zoho Projects is the source of truth for intake status unless explicitly documented otherwise.
 - Do not modify Zoho runtime systems, Creator, CRM, Books, Flow, Sheet, or WorkDrive unless explicitly approved.
 
+## Live defect found and fixed — approval Flow crashed on a matched recommendation (2026-07-25)
+
+**Observed live.** Approving recommendation `6719186000003545011` ran
+`materialize_pending_lead` → `skipped` / `target_already_set`, then
+`associate_email_to_crm_record` **threw**:
+
+> Value is empty and 'get' function cannot be applied at line number 7
+
+The Flow stopped there, so `execute_approved_recommendation` never ran —
+`Execution_Status` stayed `Not Started` and no Task was created. This is the **matched /
+rerun path**, i.e. the ordinary case, not an edge case.
+
+**Cause.** `materialize_pending_lead` seeded `normalized_message` and `crm_context` into its
+result only on the `created` path. Every early return — `target_already_set`,
+`no_pending_lead`, `record_not_found`, all four failure reasons — returned without them, so
+Flow resolved `${materializePendingLead_N.crm_context}` to **null**. Line 7 of the
+association function is `ifnull(crm_context.get("match_status"),"")`, and `ifnull` guards the
+*result* of `.get()`, not the receiver — Deluge throws on `.get()` against null before
+`ifnull` is ever reached.
+
+This directly contradicts the claim recorded in the deferred-lead entry below, that "on a
+matched or rerun recommendation the maps come back empty and the function no-ops with
+`required_email_data_missing`". They came back null, not empty, and it crashed. That claim
+was never live-exercised on the matched path.
+
+**Fix.** Both maps are now seeded empty immediately after `result = Map();`, so every return
+path carries them and the success path overwrites them. `associate_email_to_crm_record`
+stays **byte-identical** — an empty map hits its existing `crm_record_not_matched` guard and
+no-ops exactly as designed. A new test pins the seeding order ahead of the first `return`.
+
+**Redeploy required:** `materialize_pending_lead`. The approval Flow is broken until it lands.
+
+## Known gap — extraction never repairs an existing Lead (2026-07-25)
+
+The contact overlay lives inside `if(!pending_contact.isEmpty())`, which is populated only on
+the `pending_lead` path. Once a Lead exists for a sender, every later email from that address
+resolves as `matched`, the overlay is skipped, and **nothing updates the existing record**.
+
+Proven live: the second Electric Company email returned
+`"company": "The Electric Company"` correctly in `Raw_Zia_Response`, but matched the earlier
+Lead `6719186000003615001` and so wrote nothing. That Lead keeps `Company = "Blakeallard"`
+permanently. Zia extraction improves **new** Leads only; existing bad records need manual
+repair or a separate backfill.
+
+## In progress — populate more Lead fields (repo, 2026-07-25)
+
+**Goal (Blake, 2026-07-25):** fill as many Lead fields as possible without spending
+materially more tokens. The framing that makes this cheap: most fields do **not** need the
+model. The pipeline already holds the data and was discarding it.
+
+**Landed.** `materialize_pending_lead` now writes two more fields, both standard Zoho Lead
+fields whose type and length are known without a metadata read:
+
+- `Description` ← the carried `pending_message.summary`, capped at 32000. Deliberately
+  **not** the raw body and **not** `Raw_Zia_Response` — pinned by a test, so the
+  prompt-injection surface is unchanged.
+- `Website` ← a stated website if the payload ever carries one, else the sender's email
+  domain. Code owns the fallback, same rule as company.
+
+Blank values are omitted rather than written empty. No new plumbing was needed —
+`pending_message` was already carrying `to_email` and `summary` to approval time for the
+email-association work; they were simply never read.
+
+**Unblocked and landed (2026-07-25, later session).** The `getFields` read on `Leads` ran —
+MCP is back via the `mcp__claude_ai_ZohoMCP__*` server. Live metadata:
+
+| Field | Type | Live values |
+| --- | --- | --- |
+| `Lifecycle_Stage` | picklist (120) | `-None-`, **Intake**, Contact Created, Quoted, Signed, Won, Lost, Dormant |
+| `Routed_Mailbox` | text (255) | free text |
+| `Area_of_Interest` | picklist (120) | `-None-`, Service/Advisory, Battery Management Systems, Low Voltage Manufacturing, Cell/Production Distribution, Other |
+| `Industry` | picklist (120) | stock Zoho verticals — ASP, Optical Networking, Storage Equipment, … |
+
+Three of the four are now written, all without the model:
+
+- `Lifecycle_Stage` = `"Intake"`, unconditionally. A deterministic constant matching the
+  documented ladder — a Lead that has just been materialized from an approved
+  recommendation *is* at Intake. No data or inference needed.
+- `Routed_Mailbox` ← `pending_message.to_email`, already carried to approval time for the
+  email-association work and previously unread. Capped at 255, omitted when blank.
+- `Area_of_Interest` ← a structured form field, **whitelisted literal-by-literal against
+  the five real picklist values** before it is written. An off-list value is discarded to a
+  blank rather than attempted, because an invalid picklist value fails the entire Lead
+  create. `-None-` is deliberately not in the whitelist. `ensure_crm_match` now carries
+  `area_of_interest` onto `pending_contact`; it publishes blank on the email path, so this
+  field stays empty until the form path is wired to `normalize_form_entry` (see the web-form
+  defect above) — at which point it starts populating with no further code change.
+
+**`Industry` is still never written, now on evidence rather than caution.** The live
+picklist is Zoho's stock software-vertical list (ASP, Optical Networking, Storage Service
+Provider). Nothing in it describes a battery/BMS customer, so there is no correct value to
+choose even if the email stated an industry. A test pins that it is never written.
+
+**Decisions.** Never extract Industry, Annual Revenue, No. of Employees, or Rating — a cold
+email does not state them and a confident wrong value in a CRM field is worse than a blank
+one. Model output is only ever allowed to fill a blank; code owns every fallback.
+
+**Validation.** 284 tests pass (was 279), ruff clean. New tests pin the whitelist
+literal-by-literal, that `-None-` is excluded, that `Industry` never appears in the source,
+the 255 cap and blank-omission on `Routed_Mailbox`, the `Intake` constant, and that
+`ensure_crm_match` carries the field through.
+
+**Not deployed.** `materialize_pending_lead` and `ensure_crm_match` both need redeploy —
+note `ensure_crm_match` was already pending redeploy for the contact-extraction work, so
+this rides along with it.
+
+## Fixed — single-token sender names no longer land in Last_Name (2026-07-25)
+
+`ensure_crm_match` assigned a one-word sender display name to `last_name`, so TeamInbox's
+`senderName` of `"Blake"` produced `Last_Name = "Blake"`. Because the Zia overlay only fills
+**blank** fields, a correctly extracted surname could never replace it — the Zia agent change
+would have fixed the company and left the name as `Blake Blake`. Live proof of the original
+defect: Lead `Blake - Blakeallard`.
+
+**Fix.** A single-token display name is now assigned to `first_name`, leaving `last_name`
+blank for Zia to fill. A one-word name is far more likely a given name than a surname
+(`Blake`, `Kurtis`, `Richard` in the live data), and leaving the surname blank is what lets
+the extraction overlay populate it. The multi-token branch is unchanged. Pinned by
+`test_a_single_token_sender_name_is_a_first_name_not_a_surname`.
+
+**Redeploy required:** `ensure_crm_match`.
+
+## Known defect — the web form throws away its own structured fields (2026-07-25)
+
+Blake's observation that a form should be easier than a cold email is correct in principle
+and false in the current build. `normalize_form_entry` publishes `company_name`, `phone`,
+`area_of_interest` and `is_form_intake`, and `ensure_crm_match` already reads exactly those
+four — they were built to fit. But `normalize_form_entry` **is not wired to anything**. The
+live form path still runs `build_form_intake_payload`, which flattens the submission into a
+fake email (`from` / `subject` / `content`) and publishes **no structured fields at all**.
+
+So a submitter selects a company from a form field, and the pipeline discards it and then
+attempts to recover it from prose — self-inflicting the cold-email extraction problem on the
+one path that had clean input. Retiring the relay hop is already specified in
+`docs/unified_intake_architecture.md` §2; the replacement function exists and is tested.
+This is Flow wiring, not new code, and it needs no AI.
+
 ## Done — contact/company extraction from natural prose (repo, 2026-07-25)
 
 **Defect.** A test email containing "Our Company The Electric Company are preparing to
@@ -290,15 +427,41 @@ related list.
 - `create_lead_for_unmatched.deluge` is **dead code** — zero references from scripts or
   tests since `ensure_crm_match` went read-only, and it still contains a literal `\n`.
   Flagged three times; delete when convenient.
-- Two stale but load-bearing docs need a pass: `single_path_refactor_spec.md` (its block
-  table predates `ensure_crm_match`/`materialize_pending_lead`) and `zoho_flow_inventory.md`
-  (stamped 2026-07-21, and it is the designated deploy gate).
+- `docs/zoho_flow_inventory.md` — **refreshed 2026-07-25** (see the entry below). One
+  load-bearing doc is still stale: `docs/single_path_refactor_spec.md`, whose block table
+  predates `ensure_crm_match` and `materialize_pending_lead` and still shows the untagged
+  `validate_zia_analysis_response` at blocks 17/23 rather than the tagged validator.
 
 ### Repo state
 
-**273 tests pass, `ruff` clean, `git diff --check` clean. Nothing is committed** — the
-working tree carries all of 2026-07-25's work. `scripts/single_path/` was merged into
-`scripts/` today, so every function now lives in one directory.
+**273 tests pass, `ruff` clean, working tree clean.** All of 2026-07-25's work is
+committed and pushed to `bi1-t110/model-c-completion-and-task-quality` as six commits, and
+PR #3 shows them as separate stages:
+
+| Commit | Change |
+| --- | --- |
+| `769762c` | `refactor(scripts)`: merge `single_path/` into `scripts/` |
+| `5f0135b` | `fix(ingestion)`: stop automated senders creating CRM Leads |
+| `ca7a520` | `fix(form)`: render form body newlines instead of literal `\n` |
+| `2c3ff1c` | `feat(ingestion)`: deferred Lead, email association, contact extraction |
+| `8770526` | `feat(executor)`: assign, name and date the created Task |
+| `8e11ef6` | `docs`: retire superseded docs, split STATUS, add merge checklist |
+
+The final tree is byte-identical to the single squashed commit reviewed earlier (tree
+`666c893`) — the split changed history, not content. Each commit was checked out and its
+own suite run: 233 → 238 → 240 → 273 → 273 → 273, all passing, so the history bisects
+cleanly. Pushed with `--force-with-lease`.
+
+`2c3ff1c` deliberately bundles three changes — Model C deferred leads, email association,
+and contact extraction — because they edit the same four functions and no on-disk snapshot
+of the intermediate Model C state existed to split against. Its commit message states the
+three parts and why.
+
+`scripts/single_path/` was merged into `scripts/`, so every function now lives in one
+directory.
+
+**Merge:** `gh pr merge 3 --squash --delete-branch`. Given the history is now meaningful,
+`--merge` or `--rebase` preserves the six commits; `--squash` collapses them back to one.
 
 A new guard test (`TestDelugeVariablesAreDefined`) scans every `.deluge` file for reads of
 undefined variables — added after a live `Variable 'parsed' is not defined` error that the
@@ -378,10 +541,42 @@ built. Cleanup performed:
 flight. A planning document that has been implemented or superseded gets deleted, not left
 to rot — git history is the archive.
 
-Still stale and needing a pass, both load-bearing so neither was deleted:
-`docs/single_path_refactor_spec.md` (most-referenced doc in the repo; its block table
-predates `ensure_crm_match` and `materialize_pending_lead`) and `docs/zoho_flow_inventory.md`
-(stamped 2026-07-21, and it is designated the deploy gate).
+### `docs/zoho_flow_inventory.md` refreshed (2026-07-25)
+
+The deploy gate had drifted four days and inverted the two most important facts in it: it
+listed the 4-branch flow as **LIVE and ON** and the single-path flow as merely "built", and
+its block table described the retired canvas. Anyone using it to plan a deploy would have
+been reading the wrong flow. Changes:
+
+- **Flow states corrected** — single-path LIVE and ON; 4-branch RETIRED and OFF, kept as a
+  rollback path rather than deleted.
+- **Block tables rewritten** — the live single-path ingestion order, plus a new table for
+  the approval flow's three blocks (`materialize_pending_lead` →
+  `associate_email_to_crm_record` → `execute_approved_recommendation`) and why the order is
+  load-bearing.
+- **Function inventory rebuilt** from signatures read out of `scripts/` rather than from
+  memory, and split by role: live ingestion, live approval, form intake, superseded but
+  still deployed, and built-but-unwired. Seven functions were missing entirely
+  (`ensure_crm_match`, `materialize_pending_lead`, `associate_email_to_crm_record`,
+  `notify_cliq_new_recommendation`, `normalize_form_entry`, `advance_lead_on_first_outbound`,
+  `create_lead_for_unmatched`). Two recorded signatures were wrong: `build_crm_context` was
+  missing its `pending_contact` parameter, and `normalize_form_entry`'s last parameter is
+  `submitted_at`, not `submitted_at_ms`.
+- **A `REPO-AHEAD` marker and a "Pending redeploys" section added**, so the gate now names
+  the two functions live is behind on (`ensure_crm_match`,
+  `validate_zia_analysis_response_tagged`) and that both are blocked on the Zia agent
+  change. This is the property that makes the file a gate rather than a description.
+- **Corrected the `Ingestion_Key` note**, which still read "effective once the operator adds
+  the field" — it has been live and validated since 2026-07-23.
+
+**Known gap, recorded in the doc's own outstanding-work list:** only block *order* and
+function names are mirrored, not the live block labels and variable suffixes. A copied-block
+variable defect — the exact class the doc tables as historically common — would still not be
+caught by reading this file.
+
+Still stale and load-bearing, so not deleted: `docs/single_path_refactor_spec.md` (the
+most-referenced doc in the repo; its block table predates `ensure_crm_match` and
+`materialize_pending_lead`, and blocks 17/23 still name the untagged validator).
 
 ## Historical evidence
 
