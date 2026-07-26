@@ -142,7 +142,8 @@ class TestNormalizeMessageDirection(unittest.TestCase):
 
     def test_internal_sender_cannot_pass_the_processing_gate(self):
         self.assertIn(
-            "should_process = is_inbound && !is_finance_inbox && !is_internal_sender",
+            "should_process = is_inbound && !is_finance_inbox && !is_internal_sender"
+            " && !is_automated_sender",
             self.source,
         )
 
@@ -151,6 +152,49 @@ class TestNormalizeMessageDirection(unittest.TestCase):
         self.assertIn(
             'normalized.put("is_internal_sender",is_internal_sender)', self.source
         )
+
+    def test_recognizes_the_conservative_automated_sender_tokens(self):
+        for token in (
+            "noreply",
+            "no-reply",
+            "donotreply",
+            "do-not-reply",
+            "mailer-daemon",
+            "postmaster",
+            "dmarc",
+            "bounce",
+        ):
+            self.assertIn(f'automated_sender_tokens.add("{token}")', self.source)
+
+    def test_automated_senders_are_matched_on_the_local_part_only(self):
+        self.assertIn("from_local = email_parts.get(0).toLowerCase()", self.source)
+        self.assertIn("from_local.contains(automated_token)", self.source)
+
+    def test_automated_sender_has_an_explicit_skip_reason(self):
+        self.assertIn('skip_reason = "automated_sender"', self.source)
+        self.assertIn(
+            'normalized.put("is_automated_sender",is_automated_sender)', self.source
+        )
+
+    def test_the_observed_dmarc_robots_would_be_blocked(self):
+        tokens = re.findall(r'automated_sender_tokens\.add\("([^"]+)"\)', self.source)
+        for local_part in (
+            "noreply-dmarc",
+            "dmarcreport",
+            "noreply-dmarc-support",
+        ):
+            self.assertTrue(
+                any(token in local_part for token in tokens),
+                f"{local_part} would still reach the CRM",
+            )
+
+    def test_an_ordinary_sender_is_not_blocked(self):
+        tokens = re.findall(r'automated_sender_tokens\.add\("([^"]+)"\)', self.source)
+        for local_part in ("blake", "kurtis", "sean.wood", "richard", "info"):
+            self.assertFalse(
+                any(token in local_part for token in tokens),
+                f"{local_part} would be dropped before reaching review",
+            )
 
 
 class TestFormIntakeSenderResolution(unittest.TestCase):
