@@ -1,0 +1,169 @@
+map handle_sign_completion(string sign_request_id, string request_status, string request_name, string signed_folder_id, string cliq_channel)
+{
+result = Map();
+result.put("status","skipped");
+result.put("reason","");
+result.put("quote_record_id","");
+result.put("quote_number","");
+result.put("filed_to_workdrive","no");
+result.put("attached_to_quote","no");
+result.put("creator_status_updated","no");
+completion_marker = "Sign completed: ";
+map_app_owner = "blakeallard11";
+map_app_link = "quoting-tool-storefront";
+map_report_link = "Quote_Request_Report";
+safe_sign_id = ifnull(sign_request_id,"").trim();
+if(safe_sign_id == "")
+{
+	result.put("reason","sign_request_id_missing");
+	return result;
+}
+safe_status = ifnull(request_status,"").trim().toLowerCase();
+if(safe_status != "completed")
+{
+	result.put("reason","not_a_completion_event:" + safe_status);
+	return result;
+}
+safe_request_name = ifnull(request_name,"").trim();
+quote_number = safe_request_name.replaceFirst("Kinetic Bridge Quote ","",false).trim();
+if(quote_number == "")
+{
+	result.put("status","failed");
+	result.put("reason","quote_number_unresolvable");
+	return result;
+}
+result.put("quote_number",quote_number);
+quote_subject = "Kinetic Bridge Quote " + quote_number;
+quote_record = null;
+quote_record_id = "";
+try
+{
+	found_quotes = zoho.crm.searchRecords("Quotes","(Subject:equals:" + quote_subject + ")");
+	if(found_quotes != null && found_quotes.size() > 0)
+	{
+		quote_record = found_quotes.get(0);
+		quote_record_id = ifnull(quote_record.get("id"),"").toString();
+	}
+}
+catch (quote_search_error)
+{
+	info "sign completion quote search failed: " + quote_search_error;
+}
+if(quote_record_id == "")
+{
+	result.put("status","failed");
+	result.put("reason","crm_quote_not_found");
+	return result;
+}
+result.put("quote_record_id",quote_record_id);
+existing_description = ifnull(quote_record.get("Description"),"").toString();
+if(existing_description.contains(completion_marker + safe_sign_id))
+{
+	result.put("status","skipped");
+	result.put("reason","completion_already_processed");
+	return result;
+}
+signed_file = invokeurl
+[
+	url : "https://sign.zoho.com/api/v1/requests/" + safe_sign_id + "/pdf"
+	type : GET
+	connection : "sign_to_flow"
+];
+if(signed_file == null)
+{
+	result.put("status","failed");
+	result.put("reason","signed_pdf_download_failed");
+	return result;
+}
+safe_signed_folder = ifnull(signed_folder_id,"").trim();
+if(safe_signed_folder != "")
+{
+	try
+	{
+		upload_params = Map();
+		upload_params.put("parent_id",safe_signed_folder);
+		upload_params.put("filename","Kinetic_Bridge_Quote_" + quote_number + "_SIGNED.pdf");
+		upload_params.put("override-name-exist","true");
+		invokeurl
+		[
+			url : "https://upload.zoho.com/workdrive-api/v1/upload"
+			type : POST
+			parameters : upload_params
+			files : signed_file
+			connection : "workdrive_to_flow"
+		];
+		result.put("filed_to_workdrive","yes");
+	}
+	catch (upload_error)
+	{
+		info "signed pdf workdrive filing failed: " + upload_error;
+	}
+}
+try
+{
+	zoho.crm.attachFile("Quotes",quote_record_id.toLong(),signed_file,"zoho_crm_to_zoho_flow");
+	result.put("attached_to_quote","yes");
+}
+catch (attach_error)
+{
+	info "signed pdf quote attach failed: " + attach_error;
+}
+try
+{
+	updated_description = existing_description;
+	if(updated_description != "")
+	{
+		updated_description = updated_description + "\n";
+	}
+	updated_description = updated_description + completion_marker + safe_sign_id;
+	description_update = Map();
+	description_update.put("Description",updated_description);
+	zoho.crm.updateRecord("Quotes",quote_record_id.toLong(),description_update);
+}
+catch (marker_error)
+{
+	info "completion marker write failed: " + marker_error;
+}
+try
+{
+	request_ref_marker = "QTS Quote_Request ID: ";
+	marker_index = existing_description.indexOf(request_ref_marker);
+	if(marker_index >= 0)
+	{
+		after_marker = existing_description.subString(marker_index + request_ref_marker.length());
+		newline_index = after_marker.indexOf("\n");
+		if(newline_index >= 0)
+		{
+			after_marker = after_marker.subString(0,newline_index);
+		}
+		creator_record_id = after_marker.trim();
+		if(creator_record_id != "")
+		{
+			status_update = Map();
+			status_update.put("Status","Signed");
+			zoho.creator.updateRecord(map_app_owner,map_app_link,map_report_link,creator_record_id.toLong(),status_update,Map(),"creator_to_flow");
+			result.put("creator_status_updated","yes");
+		}
+	}
+}
+catch (creator_update_error)
+{
+	info "creator signed status update failed: " + creator_update_error;
+}
+safe_channel = ifnull(cliq_channel,"").trim();
+if(safe_channel != "")
+{
+	try
+	{
+		cliq_message = Map();
+		cliq_message.put("text","Signed: " + quote_subject + " — signed PDF filed to WorkDrive and attached to the CRM Quote.");
+		zoho.cliq.postToChannelAsBot(safe_channel,"ai_email_intelligence",cliq_message,"cliq_to_flow");
+	}
+	catch (cliq_error)
+	{
+		info "sign completion cliq notify failed: " + cliq_error;
+	}
+}
+result.put("status","filed");
+return result;
+}

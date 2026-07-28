@@ -18,6 +18,41 @@ Current source of truth:
 - Zoho Projects is the source of truth for intake status unless explicitly documented otherwise.
 - Do not modify Zoho runtime systems, Creator, CRM, Books, Flow, Sheet, or WorkDrive unless explicitly approved.
 
+## Built (repo, 2026-07-28): Zoho Sign end-to-end + WorkDrive filing
+
+The missing middle of the Send-for-Signature leg plus automatic signed-document filing.
+Design + wiring in `docs/sign_workdrive_plan.md`; 26 pins in
+`tests/test_sign_workflow_artifacts.py` (395 total, ruff clean). Three functions:
+
+- `scripts/qts/send_quote_for_signature.deluge` — Status = "Send for Signature" →
+  Writer merge (same v4 template as the executor, pinned) → Sign request (customer
+  signs first, sequential) → `Sign_Request_ID` writeback (the widget's existing poll
+  goes green) → quote PDF filed to WorkDrive `Quotes/` best-effort. Re-click with a
+  non-blank `Sign_Request_ID` is a no-op before any external call.
+- `scripts/ensure_workdrive_folder_path.deluge` — idempotent
+  `Accounts/<Acct>/Deals/<date Deal>/{Quotes,Signed,Correspondence,Attachments}`;
+  Creator `WorkDrive_Folder_Map` consulted first (map hit touches nothing);
+  create-only, pinned. Root folder id is a Flow parameter, not code.
+- `scripts/qts/handle_sign_completion.deluge` — Sign completion webhook → gate on
+  `completed` → CRM Quote by Subject → idempotency marker in Description → signed PDF
+  → `Signed/` + Quote attachment → Creator Status = `Signed` via the Description
+  back-reference → Cliq. Duplicate webhook events no-op.
+
+`generate_and_file_quote_document` stays byte-untouched (pinned: no Sign/WorkDrive
+references). Evidence-based call: the Creator `fn_generate_pdf` middle referenced in
+widget comments never ran live (no Sign request has ever existed) — built fresh.
+
+**Not deployed.** Blake's checklist in `docs/sign_workdrive_plan.md` §Blake config:
+mapping-table form + `Sign_Request_ID` field + `Signed` status (Creator), three new
+Flow connections, the two Flow branches, Sign webhook registration (capture one real
+payload log-only first), Bill's Tier sign-off on create-only folder writes.
+
+Also today: Command Center dashboard mockup published as an artifact for the Bill/Bryan
+meeting; `docs/crm_home_page_plan.md` refreshed (D1 closed — CRM Deals is the pipeline
+of record); `docs/command_center_build_checklist.md` (dev-only layout, nobody's homepage
+touched); `docs/teaminbox_retirement_assessment.md` (verdict: migrate later, one-adapter
+blast radius).
+
 ## PROJECT COMPLETION — where BI1-T110 actually stands (2026-07-26)
 
 Scope anchor is `TASK.md`: TeamInbox → Flow triage → CRM context → Zia → `AI_Recommendations`
