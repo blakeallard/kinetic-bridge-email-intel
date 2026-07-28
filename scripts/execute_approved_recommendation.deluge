@@ -330,51 +330,107 @@ else
 }
 task.put("$se_module",target_module);
 new_event_id = "";
+event_action = "";
 if(ai_category == "Meeting Request")
 {
-	meeting_lead_days = 2;
-	meeting_start_clock = "10:00:00";
-	meeting_end_clock = "10:30:00";
-	meeting_offset = zoho.currenttime.toString("XXX");
-	meeting_date = zoho.currentdate.addDay(meeting_lead_days).toString("yyyy-MM-dd");
-	event_participants = List();
-	if(sender_email != "")
+	events_module = "Events";
+	placeholder_marker = "Proposed time only - confirm with the customer before sending the invite.";
+	existing_event_id = "";
+	existing_event_description = "";
+	try
 	{
-		sender_participant = Map();
-		sender_participant.put("participant",sender_email);
-		sender_participant.put("type","email");
-		event_participants.add(sender_participant);
+		related_events = zoho.crm.getRelatedRecords(events_module,target_module,target_record_id.toLong());
+		if(related_events != null)
+		{
+			for each rel_event in related_events
+			{
+				rel_description = ifnull(rel_event.get("Description"),"").toString();
+				if(existing_event_id == "" && rel_description.contains(placeholder_marker))
+				{
+					existing_event_id = ifnull(rel_event.get("id"),"").toString().trim();
+					existing_event_description = rel_description;
+				}
+			}
+		}
 	}
-	event_description = "Proposed time only - confirm with the customer before sending the invite.";
-	event_description = event_description + new_line + new_line + "Customer's stated preference, from the source email:";
-	event_description = event_description + new_line + review_notes;
-	event = Map();
-	event.put("Event_Title",subject);
-	event.put("Start_DateTime",meeting_date + "T" + meeting_start_clock + meeting_offset);
-	event.put("End_DateTime",meeting_date + "T" + meeting_end_clock + meeting_offset);
-	event.put("Description",event_description);
-	event.put("Owner",task_owner);
-	event.put("Participants",event_participants);
-	if(target_module == "Contacts")
+	catch (event_lookup_error)
 	{
-		event.put("Who_Id",target_lookup);
+		existing_event_id = "";
+	}
+	if(existing_event_id != "")
+	{
+		updated_description = existing_event_description + new_line + new_line + "Follow-up from a later email in this thread:";
+		updated_description = updated_description + new_line + review_notes;
+		if(updated_description.length() > 32000)
+		{
+			updated_description = updated_description.subString(0,31999);
+		}
+		event_update = Map();
+		event_update.put("Description",updated_description);
+		try
+		{
+			event_update_response = zoho.crm.updateRecord(events_module,existing_event_id,event_update);
+			if(event_update_response != null && ifnull(event_update_response.get("id"),"").toString() != "")
+			{
+				new_event_id = existing_event_id;
+				event_action = "updated";
+			}
+		}
+		catch (event_update_error)
+		{
+			new_event_id = "";
+		}
 	}
 	else
 	{
-		event.put("What_Id",target_lookup);
-	}
-	event.put("$se_module",target_module);
-	try
-	{
-		event_response = zoho.crm.createRecord("Events",event);
-		if(event_response != null)
+		meeting_lead_days = 2;
+		meeting_start_clock = "10:00:00";
+		meeting_end_clock = "10:30:00";
+		meeting_offset = zoho.currenttime.toString("XXX");
+		meeting_date = zoho.currentdate.addDay(meeting_lead_days).toString("yyyy-MM-dd");
+		event_participants = List();
+		if(sender_email != "")
 		{
-			new_event_id = ifnull(event_response.get("id"),"").toString().trim();
+			sender_participant = Map();
+			sender_participant.put("participant",sender_email);
+			sender_participant.put("type","email");
+			event_participants.add(sender_participant);
 		}
-	}
-	catch (event_create_error)
-	{
-		new_event_id = "";
+		event_description = placeholder_marker;
+		event_description = event_description + new_line + new_line + "Customer's stated preference, from the source email:";
+		event_description = event_description + new_line + review_notes;
+		event = Map();
+		event.put("Event_Title",subject);
+		event.put("Start_DateTime",meeting_date + "T" + meeting_start_clock + meeting_offset);
+		event.put("End_DateTime",meeting_date + "T" + meeting_end_clock + meeting_offset);
+		event.put("Description",event_description);
+		event.put("Owner",task_owner);
+		event.put("Participants",event_participants);
+		if(target_module == "Contacts")
+		{
+			event.put("Who_Id",target_lookup);
+		}
+		else
+		{
+			event.put("What_Id",target_lookup);
+		}
+		event.put("$se_module",target_module);
+		try
+		{
+			event_response = zoho.crm.createRecord("Events",event);
+			if(event_response != null)
+			{
+				new_event_id = ifnull(event_response.get("id"),"").toString().trim();
+				if(new_event_id != "")
+				{
+					event_action = "created";
+				}
+			}
+		}
+		catch (event_create_error)
+		{
+			new_event_id = "";
+		}
 	}
 }
 task_response = zoho.crm.createRecord("Tasks",task);
@@ -420,6 +476,7 @@ if(success_response == null || ifnull(success_response.get("id"),"").toString() 
 }
 result.put("status","executed");
 result.put("event_id",new_event_id);
+result.put("event_action",event_action);
 result.put("record_id",record_id);
 result.put("executed_task_id",new_task_id);
 result.put("execution_key",execution_key);

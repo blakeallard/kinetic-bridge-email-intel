@@ -177,12 +177,16 @@ class TestSafetyInvariants(unittest.TestCase):
     def test_the_meeting_never_proposes_a_time_as_confirmed(self):
         """The AI does not pick meeting times. The slot is a placeholder the
         human corrects, and the Description says so before anything else.
+
+        The marker string is defined once and reused both as the Description
+        opener and as the dedup fingerprint, so the two can never drift apart.
         """
         self.assertIn(
-            'event_description = "Proposed time only - confirm with the customer'
+            'placeholder_marker = "Proposed time only - confirm with the customer'
             ' before sending the invite."',
             CODE,
         )
+        self.assertIn("event_description = placeholder_marker", CODE)
         self.assertIn("Customer's stated preference, from the source email:", CODE)
 
     def test_a_failed_meeting_create_never_blocks_the_task(self):
@@ -203,9 +207,15 @@ class TestSafetyInvariants(unittest.TestCase):
         event_create = CODE.index('zoho.crm.createRecord("Events",event)')
         self.assertLess(claim, event_create)
 
-    def test_deluge_updates_only_the_recommendation_module(self):
+    def test_deluge_updates_only_the_recommendation_and_events_modules(self):
+        """Events joined the update allowlist on 2026-07-26 for meeting dedup:
+        a second Meeting Request on the same record refreshes the existing
+        placeholder Event instead of creating a sibling. Equality, not
+        membership — a third updatable module is a policy decision.
+        """
         updated = set(re.findall(r'zoho\.crm\.updateRecord\((\w+)', CODE))
-        self.assertEqual(updated, {"module_api_name"})
+        self.assertEqual(updated, {"module_api_name", "events_module"})
+        self.assertIn('events_module = "Events"', CODE)
 
     def test_deluge_performs_no_forbidden_action(self):
         for forbidden in ("sendmail", "Closed Won", "Quotes", "postUrl",
@@ -218,6 +228,64 @@ class TestSafetyInvariants(unittest.TestCase):
         self.assertIn('headers : claim_headers', CODE)
         self.assertIn('type : PUT', CODE)
         self.assertIn('url : "https://www.zohoapis.com/crm/v8/" + module_api_name', CODE)
+
+
+class TestMeetingDedup(unittest.TestCase):
+    """A repeat Meeting Request on the same record must update the existing
+    placeholder Event, not create a sibling. The fingerprint is the marker
+    sentence the executor itself writes into every placeholder Description.
+    """
+
+    def test_the_executor_searches_the_target_record_for_a_placeholder_event(self):
+        self.assertIn(
+            "related_events = zoho.crm.getRelatedRecords"
+            "(events_module,target_module,target_record_id.toLong())",
+            CODE,
+        )
+        self.assertIn("rel_description.contains(placeholder_marker)", CODE)
+
+    def test_a_found_placeholder_is_updated_not_duplicated(self):
+        self.assertIn('if(existing_event_id != "")', CODE)
+        self.assertIn('event_update.put("Description",updated_description)', CODE)
+        self.assertIn("new_event_id = existing_event_id", CODE)
+        self.assertIn('event_action = "updated"', CODE)
+
+    def test_the_update_appends_the_new_request_to_the_existing_description(self):
+        self.assertIn("updated_description = existing_event_description", CODE)
+        self.assertIn("Follow-up from a later email in this thread:", CODE)
+        self.assertIn("updated_description + new_line + review_notes", CODE)
+
+    def test_the_update_never_moves_the_time_owner_or_participants(self):
+        """The human owns the slot. A later email must not silently reschedule
+        a meeting someone may have already confirmed.
+        """
+        for field in ("Start_DateTime", "End_DateTime", "Owner",
+                      "Participants", "Event_Title", "Who_Id", "What_Id"):
+            self.assertNotIn(f'event_update.put("{field}"', CODE)
+
+    def test_a_failed_lookup_degrades_to_creating_a_new_event(self):
+        """Dedup is best-effort: a lookup failure falls through to the create
+        path rather than dropping the meeting. Worst case is the old behavior
+        (a duplicate), never a lost meeting.
+        """
+        self.assertIn("catch (event_lookup_error)", CODE)
+        self.assertIn('existing_event_id = ""', CODE)
+
+    def test_a_failed_event_update_never_blocks_the_task(self):
+        self.assertIn("catch (event_update_error)", CODE)
+        self.assertLess(
+            CODE.index("catch (event_update_error)"),
+            CODE.index('zoho.crm.createRecord("Tasks",task)'),
+        )
+
+    def test_the_event_lookup_happens_after_the_claim(self):
+        self.assertLess(
+            CODE.index("If-Unmodified-Since"),
+            CODE.index("zoho.crm.getRelatedRecords"),
+        )
+
+    def test_the_result_reports_whether_the_event_was_created_or_updated(self):
+        self.assertIn('result.put("event_action",event_action)', CODE)
 
 
 class TestAtomicClaim(unittest.TestCase):
