@@ -1,0 +1,911 @@
+out = Map();
+action_name = ifnull(input.Action_field,"");
+input.Request_Status = "error";
+try
+{
+	if(action_name == "search_customers")
+	{
+		query_text = ifnull(input.Query_Text,"").trim();
+		matches = List();
+		seen_ids = List();
+		if(query_text != "")
+		{
+			combined_criteria = "((Email:starts_with:" + query_text + ")or(Last_Name:starts_with:" + query_text + ")or(First_Name:starts_with:" + query_text + "))";
+			if(query_text.contains(" "))
+			{
+				name_tokens = query_text.toList(" ");
+				first_token = name_tokens.get(0).trim();
+				last_token = name_tokens.get(name_tokens.size() - 1).trim();
+				if(first_token != "" && last_token != "")
+				{
+					combined_criteria = "(" + combined_criteria + "or((First_Name:starts_with:" + first_token + ")and(Last_Name:starts_with:" + last_token + "))or((First_Name:starts_with:" + last_token + ")and(Last_Name:starts_with:" + first_token + ")))";
+				}
+			}
+			search_criteria_list = List();
+			search_criteria_list.add(combined_criteria);
+			for each  search_criteria in search_criteria_list
+			{
+				found = zoho.crm.searchRecords("Contacts",search_criteria);
+				if(found != null)
+				{
+					for each  contact in found
+					{
+						contact_id = contact.get("id").toString();
+						if(!seen_ids.contains(contact_id))
+						{
+							seen_ids.add(contact_id);
+							row = Map();
+							row.put("contact_id",contact_id);
+							row.put("name",ifnull(contact.get("Full_Name"),""));
+							row.put("email",ifnull(contact.get("Email"),""));
+							row.put("phone",ifnull(contact.get("Phone"),""));
+							account_ref = contact.get("Account_Name");
+							if(account_ref != null)
+							{
+								row.put("account_id",ifnull(account_ref.get("id"),"").toString());
+								row.put("account_name",ifnull(account_ref.get("name"),""));
+							}
+							matches.add(row);
+						}
+					}
+				}
+			}
+		}
+		out.put("matches",matches);
+		input.Request_Status = "done";
+	}
+	if(action_name == "get_customer")
+	{
+		contact_id_text = ifnull(input.Query_Text,"").trim();
+		if(contact_id_text != "")
+		{
+			contact = zoho.crm.getRecordById("Contacts",contact_id_text.toLong());
+			if(contact != null)
+			{
+				out.put("contact_id",contact_id_text);
+				out.put("first_name",ifnull(contact.get("First_Name"),""));
+				out.put("last_name",ifnull(contact.get("Last_Name"),""));
+				out.put("name",ifnull(contact.get("Full_Name"),""));
+				out.put("email",ifnull(contact.get("Email"),""));
+				out.put("phone",ifnull(contact.get("Phone"),""));
+				mailing = Map();
+				mailing.put("street",ifnull(contact.get("Mailing_Street"),""));
+				mailing.put("city",ifnull(contact.get("Mailing_City"),""));
+				mailing.put("state",ifnull(contact.get("Mailing_State"),""));
+				mailing.put("code",ifnull(contact.get("Mailing_Zip"),""));
+				mailing.put("country",ifnull(contact.get("Mailing_Country"),""));
+				out.put("mailing_address",mailing);
+				account_ref = contact.get("Account_Name");
+				if(account_ref != null)
+				{
+					account_id_text = ifnull(account_ref.get("id"),"").toString();
+					out.put("account_id",account_id_text);
+					out.put("account_name",ifnull(account_ref.get("name"),""));
+					if(account_id_text != "")
+					{
+						account = zoho.crm.getRecordById("Accounts",account_id_text.toLong());
+						if(account != null)
+						{
+							billing = Map();
+							billing.put("street",ifnull(account.get("Billing_Street"),""));
+							billing.put("city",ifnull(account.get("Billing_City"),""));
+							billing.put("state",ifnull(account.get("Billing_State"),""));
+							billing.put("code",ifnull(account.get("Billing_Code"),""));
+							billing.put("country",ifnull(account.get("Billing_Country"),""));
+							out.put("billing_address",billing);
+							shipping = Map();
+							shipping.put("street",ifnull(account.get("Shipping_Street"),""));
+							shipping.put("city",ifnull(account.get("Shipping_City"),""));
+							shipping.put("state",ifnull(account.get("Shipping_State"),""));
+							shipping.put("code",ifnull(account.get("Shipping_Code"),""));
+							shipping.put("country",ifnull(account.get("Shipping_Country"),""));
+							out.put("shipping_address",shipping);
+						}
+					}
+				}
+				input.Request_Status = "done";
+			}
+			else
+			{
+				out.put("error","Contact " + contact_id_text + " not found");
+			}
+		}
+		else
+		{
+			out.put("error","get_customer requires a Contact ID in Query_Text");
+		}
+	}
+	if(action_name == "create_customer")
+	{
+		payload = Map();
+		payload_text = ifnull(input.Payload_JSON,"");
+		if(payload_text != "")
+		{
+			payload = payload_text.toMap();
+		}
+		email_text = ifnull(payload.get("email"),"").trim();
+		last_name_text = ifnull(payload.get("last_name"),"").trim();
+		if(last_name_text == "")
+		{
+			out.put("error","create_customer requires last_name");
+		}
+		else
+		{
+			existing_contact_id = "";
+			if(email_text != "")
+			{
+				dup = zoho.crm.searchRecords("Contacts","(Email:equals:" + email_text + ")");
+				if(dup != null)
+				{
+					if(dup.size() > 0)
+					{
+						existing_contact_id = dup.get(0).get("id").toString();
+					}
+				}
+			}
+			if(existing_contact_id != "")
+			{
+				out.put("duplicate",true);
+				out.put("contact_id",existing_contact_id);
+				out.put("message","A CRM Contact with this email already exists; reusing it.");
+				input.Request_Status = "done";
+			}
+			else
+			{
+				account_id_text = "";
+				company_text = ifnull(payload.get("company"),"").trim();
+				if(company_text != "")
+				{
+					acc_found = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + company_text + ")");
+					if(acc_found != null)
+					{
+						if(acc_found.size() > 0)
+						{
+							account_id_text = acc_found.get(0).get("id").toString();
+						}
+					}
+					if(account_id_text == "")
+					{
+						account_data = Map();
+						account_data.put("Account_Name",company_text);
+						account_data.put("Billing_Street",ifnull(payload.get("billing_street"),""));
+						account_data.put("Billing_City",ifnull(payload.get("billing_city"),""));
+						account_data.put("Billing_State",ifnull(payload.get("billing_state"),""));
+						account_data.put("Billing_Code",ifnull(payload.get("billing_code"),""));
+						account_data.put("Billing_Country",ifnull(payload.get("billing_country"),""));
+						new_account = zoho.crm.createRecord("Accounts",account_data);
+						if(new_account != null)
+						{
+							account_id_text = ifnull(new_account.get("id"),"").toString();
+						}
+					}
+				}
+				contact_data = Map();
+				contact_data.put("First_Name",ifnull(payload.get("first_name"),""));
+				contact_data.put("Last_Name",last_name_text);
+				if(email_text != "")
+				{
+					contact_data.put("Email",email_text);
+				}
+				contact_data.put("Phone",ifnull(payload.get("phone"),""));
+				contact_data.put("Mailing_Street",ifnull(payload.get("billing_street"),""));
+				contact_data.put("Mailing_City",ifnull(payload.get("billing_city"),""));
+				contact_data.put("Mailing_State",ifnull(payload.get("billing_state"),""));
+				contact_data.put("Mailing_Zip",ifnull(payload.get("billing_code"),""));
+				contact_data.put("Mailing_Country",ifnull(payload.get("billing_country"),""));
+				if(account_id_text != "")
+				{
+					contact_data.put("Account_Name",account_id_text);
+				}
+				new_contact = zoho.crm.createRecord("Contacts",contact_data);
+				if(new_contact != null)
+				{
+					out.put("contact_id",ifnull(new_contact.get("id"),"").toString());
+					out.put("account_id",account_id_text);
+					out.put("duplicate",false);
+					input.Request_Status = "done";
+				}
+				else
+				{
+					out.put("error","CRM Contact creation returned null");
+				}
+			}
+		}
+	}
+	if(action_name == "get_quote_lines")
+	{
+		quote_id_text = ifnull(input.Query_Text,"").trim();
+		if(quote_id_text == "")
+		{
+			out.put("error","get_quote_lines requires a Quote_Request record ID in Query_Text");
+		}
+		else
+		{
+			lines = List();
+			found_quote = false;
+			for each  quote in Quote_Request[ID == quote_id_text.toLong()]
+			{
+				found_quote = true;
+				for each  line in quote.Quote_Lines
+				{
+					row = Map();
+					row.put("part_number",ifnull(line.Part_Number,""));
+					row.put("description",ifnull(line.Description,""));
+					row.put("qty",ifnull(line.Qty,0));
+					row.put("unit_price",ifnull(line.Unit_Price,""));
+					row.put("fx_unit_price",ifnull(line.FX_Unit_Price,""));
+					row.put("line_total_usd",ifnull(line.Line_Total_USD,""));
+					row.put("line_total_fx",ifnull(line.Line_Total_FX,""));
+					row.put("kit_warning",ifnull(line.Kit_Warning,""));
+					lines.add(row);
+				}
+				break;
+			}
+			if(found_quote)
+			{
+				out.put("lines",lines);
+				for each  quote_hdr in Quote_Request[ID == quote_id_text.toLong()]
+				{
+					out.put("crm_deal_id",ifnull(quote_hdr.CRM_Deal_ID,""));
+					out.put("crm_contact_id",ifnull(quote_hdr.CRM_Contact_ID,""));
+					out.put("sign_request_id",ifnull(quote_hdr.Sign_Request_ID,""));
+					out.put("status",ifnull(quote_hdr.Status,""));
+					break;
+				}
+				input.Request_Status = "done";
+			}
+			else
+			{
+				out.put("error","Quote_Request " + quote_id_text + " not found");
+			}
+		}
+	}
+	if(action_name == "books_diag")
+	{
+		org_resp = invokeurl
+		[
+			url :"https://www.zohoapis.com/books/v3/organizations"
+			type :GET
+			connection:"zoho_books_connection"
+		];
+		orgs = org_resp.get("organizations");
+		org_list = List();
+		if(orgs != null)
+		{
+			for each  org in orgs
+			{
+				om = Map();
+				om.put("organization_id",ifnull(org.get("organization_id"),""));
+				om.put("name",ifnull(org.get("name"),""));
+				om.put("contact_name",ifnull(org.get("contact_name"),""));
+				om.put("country",ifnull(org.get("country_code"),ifnull(org.get("country"),"")));
+				om.put("currency_code",ifnull(org.get("currency_code"),""));
+				om.put("time_zone",ifnull(org.get("time_zone"),""));
+				om.put("is_default_org",ifnull(org.get("is_default_org"),""));
+				om.put("sales_tax_type",ifnull(org.get("sales_tax_type"),""));
+				om.put("tax_group_enabled",ifnull(org.get("tax_group_enabled"),""));
+				om.put("version",ifnull(org.get("version"),""));
+				org_list.add(om);
+			}
+		}
+		out.put("organizations",org_list);
+		first_org_id = "";
+		if(org_list.size() > 0)
+		{
+			first_org_id = org_list.get(0).get("organization_id");
+		}
+		if(first_org_id != "")
+		{
+			taxes_resp = invokeurl
+			[
+				url :"https://www.zohoapis.com/books/v3/settings/taxes?organization_id=" + first_org_id
+				type :GET
+				connection:"zoho_books_connection"
+			];
+			out.put("taxes",ifnull(taxes_resp.get("taxes"),List()));
+			auth_resp = invokeurl
+			[
+				url :"https://www.zohoapis.com/books/v3/settings/taxauthorities?organization_id=" + first_org_id
+				type :GET
+				connection:"zoho_books_connection"
+			];
+			out.put("tax_authorities",ifnull(auth_resp.get("tax_authorities"),List()));
+		}
+		input.Request_Status = "done";
+	}
+	if(action_name == "get_tax")
+	{
+		org_resp = invokeurl
+		[
+			url :"https://www.zohoapis.com/books/v3/organizations"
+			type :GET
+			connection:"zoho_books_connection"
+		];
+		orgs = org_resp.get("organizations");
+		org_id = "";
+		org_count = 0;
+		if(orgs != null)
+		{
+			org_count = orgs.size();
+			if(org_count == 1)
+			{
+				org_id = ifnull(orgs.get(0).get("organization_id"),"");
+			}
+		}
+		if(org_id == "")
+		{
+			if(org_count > 1)
+			{
+				out.put("error","Tax unavailable -- multiple Books organizations returned (" + org_count + "); explicit organization selection required (see docs/TAX_AUTOMATION_PLAN.md)");
+			}
+			else
+			{
+				out.put("error","Tax unavailable -- Zoho Books returned no organization via zoho_books_connection");
+			}
+			out.put("tax_status","not_connected");
+			out.put("source","zoho_books");
+		}
+		else
+		{
+			taxes_resp = invokeurl
+			[
+				url :"https://www.zohoapis.com/books/v3/settings/taxes?organization_id=" + org_id
+				type :GET
+				connection:"zoho_books_connection"
+			];
+			tax_list = ifnull(taxes_resp.get("taxes"),List());
+			out.put("organization_id",org_id);
+			out.put("configured_taxes",tax_list);
+			out.put("source","zoho_books");
+			out.put("tax_status","insufficient_permissions");
+			out.put("error","Tax unavailable -- read-only tax list cannot produce an address-specific rate; Sales Tax Automation calculates at transaction level. Smallest additional permission: Estimates -> Create (draft-estimate probe). See docs/TAX_AUTOMATION_PLAN.md.");
+		}
+	}
+	if(action_name == "expand_kit")
+	{
+		payload = Map();
+		payload_text = ifnull(input.Payload_JSON,"");
+		if(payload_text != "")
+		{
+			payload = payload_text.toMap();
+		}
+		kit_key_text = ifnull(payload.get("kit_key"),"").toString().trim();
+		series_cells_text = ifnull(payload.get("series_cell_count"),"").toString().trim();
+		if(kit_key_text == "")
+		{
+			out.put("error","expand_kit requires kit_key in Payload_JSON");
+		}
+		else
+		{
+			series_cells_valid = true;
+			series_cells = 0;
+			if(series_cells_text != "")
+			{
+				if(series_cells_text.isNumber())
+				{
+					series_cells = series_cells_text.toLong();
+				}
+				else
+				{
+					series_cells_valid = false;
+				}
+			}
+			if(!series_cells_valid)
+			{
+				out.put("error","expand_kit: series_cell_count must be a whole number (got \"" + series_cells_text + "\")");
+			}
+			else
+			{
+				resp = thisapp.fn_get_kit_components(kit_key_text,series_cells);
+				err = ifnull(resp.get("error"),"").toString();
+				if(err != "")
+				{
+					out.put("error",err);
+				}
+				else
+				{
+					lines = List();
+					resp_lines = resp.get("lines");
+					if(resp_lines != null)
+					{
+						for each  line in resp_lines
+						{
+							row = Map();
+							row.put("part_number",ifnull(line.get("Part_Number"),""));
+							row.put("qty",ifnull(line.get("Qty"),0));
+							row.put("kit_warning",ifnull(line.get("Kit_Warning"),""));
+							lines.add(row);
+						}
+					}
+					out.put("kit_key",kit_key_text);
+					out.put("lines",lines);
+					out.put("notices",ifnull(resp.get("notices"),List()));
+					input.Request_Status = "done";
+				}
+			}
+		}
+	}
+	if(action_name == "search_deals")
+	{
+		payload = Map();
+		payload_text = ifnull(input.Payload_JSON,"");
+		if(payload_text != "")
+		{
+			payload = payload_text.toMap();
+		}
+		contact_id_text = ifnull(payload.get("contact_id"),"").toString().trim();
+		account_id_text = ifnull(payload.get("account_id"),"").toString().trim();
+		if(contact_id_text == "" && account_id_text == "")
+		{
+			out.put("error","search_deals requires contact_id and/or account_id in Payload_JSON");
+		}
+		else
+		{
+			closed_stages = List();
+			closed_stages.add("Closed Won");
+			closed_stages.add("Closed Lost");
+			closed_stages.add("Closed Lost to Competition");
+			deal_rows = List();
+			seen_deal_ids = List();
+			related_sets = List();
+			if(contact_id_text != "")
+			{
+				contact_deals = zoho.crm.getRelatedRecords("Deals","Contacts",contact_id_text.toLong());
+				if(contact_deals != null)
+				{
+					related_sets.add(contact_deals);
+				}
+			}
+			if(account_id_text != "")
+			{
+				account_deals = zoho.crm.getRelatedRecords("Deals","Accounts",account_id_text.toLong());
+				if(account_deals != null)
+				{
+					related_sets.add(account_deals);
+				}
+			}
+			for each  related_list in related_sets
+			{
+				for each  deal in related_list
+				{
+					deal_id_val = ifnull(deal.get("id"),"").toString();
+					if(deal_id_val != "")
+					{
+						if(!seen_deal_ids.contains(deal_id_val))
+						{
+							seen_deal_ids.add(deal_id_val);
+							stage_val = ifnull(deal.get("Stage"),"").toString();
+							row = Map();
+							row.put("deal_id",deal_id_val);
+							row.put("deal_name",ifnull(deal.get("Deal_Name"),""));
+							row.put("stage",stage_val);
+							row.put("amount",ifnull(deal.get("Amount"),""));
+							row.put("modified_time",ifnull(deal.get("Modified_Time"),"").toString());
+							account_ref = deal.get("Account_Name");
+							if(account_ref != null)
+							{
+								row.put("account_name",ifnull(account_ref.get("name"),""));
+							}
+							contact_ref = deal.get("Contact_Name");
+							if(contact_ref != null)
+							{
+								row.put("contact_name",ifnull(contact_ref.get("name"),""));
+							}
+							is_closed = false;
+							if(closed_stages.contains(stage_val))
+							{
+								is_closed = true;
+							}
+							row.put("is_closed",is_closed);
+							deal_rows.add(row);
+						}
+					}
+				}
+			}
+			out.put("deals",deal_rows);
+			input.Request_Status = "done";
+		}
+	}
+	if(action_name == "get_deal")
+	{
+		deal_id_text = ifnull(input.Query_Text,"").trim();
+		if(deal_id_text == "")
+		{
+			out.put("error","get_deal requires a CRM Deal record ID in Query_Text");
+		}
+		else
+		{
+			deal = zoho.crm.getRecordById("Deals",deal_id_text.toLong());
+			if(deal == null)
+			{
+				out.put("error","Deal " + deal_id_text + " not found");
+			}
+			else
+			{
+				closed_stages = List();
+				closed_stages.add("Closed Won");
+				closed_stages.add("Closed Lost");
+				closed_stages.add("Closed Lost to Competition");
+				stage_val = ifnull(deal.get("Stage"),"").toString();
+				out.put("deal_id",deal_id_text);
+				out.put("deal_name",ifnull(deal.get("Deal_Name"),""));
+				out.put("stage",stage_val);
+				out.put("amount",ifnull(deal.get("Amount"),""));
+				out.put("modified_time",ifnull(deal.get("Modified_Time"),"").toString());
+				account_ref = deal.get("Account_Name");
+				if(account_ref != null)
+				{
+					out.put("account_name",ifnull(account_ref.get("name"),""));
+				}
+				contact_ref = deal.get("Contact_Name");
+				if(contact_ref != null)
+				{
+					out.put("contact_name",ifnull(contact_ref.get("name"),""));
+				}
+				is_closed = false;
+				if(closed_stages.contains(stage_val))
+				{
+					is_closed = true;
+				}
+				out.put("is_closed",is_closed);
+				input.Request_Status = "done";
+			}
+		}
+	}
+	if(action_name == "create_deal")
+	{
+		payload = Map();
+		payload_text = ifnull(input.Payload_JSON,"");
+		if(payload_text != "")
+		{
+			payload = payload_text.toMap();
+		}
+		deal_name_text = ifnull(payload.get("deal_name"),"").toString().trim();
+		contact_id_text = ifnull(payload.get("contact_id"),"").toString().trim();
+		account_id_text = ifnull(payload.get("account_id"),"").toString().trim();
+		account_name_text = ifnull(payload.get("account_name"),"").toString().trim();
+		lead_id_text = ifnull(payload.get("lead_id"),"").toString().trim();
+		if(deal_name_text == "")
+		{
+			out.put("error","create_deal requires deal_name in Payload_JSON");
+		}
+		else
+		{
+			lead_block_error = "";
+			converted_deal_id = "";
+			if(lead_id_text != "" && contact_id_text == "")
+			{
+				lead_rec = zoho.crm.getRecordById("Leads",lead_id_text.toLong());
+				if(lead_rec == null)
+				{
+					lead_block_error = "CRM Lead " + lead_id_text + " not found";
+				}
+				else
+				{
+					lead_email = ifnull(lead_rec.get("Email"),"").toString().trim().toLowerCase();
+					lead_company = ifnull(lead_rec.get("Company"),"").toString().trim();
+					is_converted = ifnull(lead_rec.get("$converted"),false);
+					if(lead_email != "")
+					{
+						existing_contacts = zoho.crm.searchRecords("Contacts","(Email:equals:" + lead_email + ")");
+						if(existing_contacts != null && existing_contacts.size() > 0)
+						{
+							contact_id_text = ifnull(existing_contacts.get(0).get("id"),"").toString();
+							contact_account = existing_contacts.get(0).get("Account_Name");
+							if(contact_account != null)
+							{
+								account_id_text = ifnull(contact_account.get("id"),"").toString();
+							}
+						}
+					}
+					if(account_id_text == "" && lead_company != "")
+					{
+						existing_accounts = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + lead_company + ")");
+						if(existing_accounts != null && existing_accounts.size() > 0)
+						{
+							account_id_text = ifnull(existing_accounts.get(0).get("id"),"").toString();
+						}
+					}
+					if(is_converted == false)
+					{
+						potential = Map();
+						potential.put("Deal_Name",deal_name_text);
+						potential.put("Stage","Proposal/Price Quote");
+						potential.put("Closing_Date",zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+						convert_values = Map();
+						convert_values.put("overwrite",true);
+						convert_values.put("Deals",potential);
+						if(account_id_text != "")
+						{
+							convert_values.put("Accounts",account_id_text);
+						}
+						if(contact_id_text != "")
+						{
+							convert_values.put("Contacts",contact_id_text);
+						}
+						conv = zoho.crm.convertLead(lead_id_text.toLong(),convert_values);
+						if(conv == null)
+						{
+							lead_block_error = "CRM Lead conversion returned null";
+						}
+						else
+						{
+							converted_deal_id = ifnull(conv.get("Deals"),"").toString().trim();
+							if(contact_id_text == "")
+							{
+								contact_id_text = ifnull(conv.get("Contacts"),"").toString().trim();
+							}
+							if(account_id_text == "")
+							{
+								account_id_text = ifnull(conv.get("Accounts"),"").toString().trim();
+							}
+							out.put("lead_converted","yes");
+						}
+					}
+				}
+			}
+			if(lead_block_error != "")
+			{
+				out.put("error",lead_block_error);
+			}
+			else if(converted_deal_id != "")
+			{
+				out.put("deal_id",converted_deal_id);
+				out.put("deal_name",deal_name_text);
+				out.put("stage","Proposal/Price Quote");
+				out.put("contact_id",contact_id_text);
+				out.put("account_id",account_id_text);
+				input.Request_Status = "done";
+			}
+			else
+			{
+			deal_data = Map();
+			deal_data.put("Deal_Name",deal_name_text);
+			deal_data.put("Stage","Proposal/Price Quote");
+			deal_data.put("Closing_Date",zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+			if(account_id_text != "")
+			{
+				deal_data.put("Account_Name",account_id_text);
+			}
+			else if(account_name_text != "")
+			{
+				deal_data.put("Account_Name",account_name_text);
+			}
+			if(contact_id_text != "")
+			{
+				deal_data.put("Contact_Name",contact_id_text);
+			}
+			new_deal = zoho.crm.createRecord("Deals",deal_data);
+			created_id = "";
+			if(new_deal != null)
+			{
+				created_id = ifnull(new_deal.get("id"),"").toString();
+			}
+			if(created_id != "")
+			{
+				out.put("deal_id",created_id);
+				out.put("deal_name",deal_name_text);
+				out.put("stage","Proposal/Price Quote");
+				out.put("contact_id",contact_id_text);
+				out.put("account_id",account_id_text);
+				input.Request_Status = "done";
+			}
+			else
+			{
+				out.put("error","CRM Deal creation returned null");
+			}
+			}
+		}
+	}
+	if(action_name == "search_leads")
+	{
+		query_text = ifnull(input.Query_Text,"").trim();
+		lead_matches = List();
+		seen_lead_ids = List();
+		if(query_text != "")
+		{
+			lead_combined = "((Email:starts_with:" + query_text + ")or(Last_Name:starts_with:" + query_text + ")or(First_Name:starts_with:" + query_text + ")or(Company:starts_with:" + query_text + "))";
+			if(query_text.contains(" "))
+			{
+				name_tokens = query_text.toList(" ");
+				first_token = name_tokens.get(0).trim();
+				last_token = name_tokens.get(name_tokens.size() - 1).trim();
+				if(first_token != "" && last_token != "")
+				{
+					lead_combined = "(" + lead_combined + "or((First_Name:starts_with:" + first_token + ")and(Last_Name:starts_with:" + last_token + "))or((First_Name:starts_with:" + last_token + ")and(Last_Name:starts_with:" + first_token + ")))";
+				}
+			}
+			lead_criteria_list = List();
+			lead_criteria_list.add(lead_combined);
+			for each  lead_criteria in lead_criteria_list
+			{
+				found_leads = zoho.crm.searchRecords("Leads",lead_criteria);
+				if(found_leads != null)
+				{
+					for each  lead in found_leads
+					{
+						lead_id_val = ifnull(lead.get("id"),"").toString();
+						if(lead_id_val != "")
+						{
+							if(!seen_lead_ids.contains(lead_id_val))
+							{
+								is_converted = ifnull(lead.get("$converted"),false);
+								if(is_converted == false)
+								{
+									seen_lead_ids.add(lead_id_val);
+									row = Map();
+									row.put("lead_id",lead_id_val);
+									row.put("name",ifnull(lead.get("Full_Name"),""));
+									row.put("email",ifnull(lead.get("Email"),""));
+									row.put("phone",ifnull(lead.get("Phone"),""));
+									row.put("company",ifnull(lead.get("Company"),""));
+									lead_matches.add(row);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		out.put("lead_matches",lead_matches);
+		input.Request_Status = "done";
+	}
+	if(action_name == "get_quote_by_number")
+	{
+		quote_number_text = ifnull(input.Query_Text,"").trim();
+		q_payload = Map();
+		q_payload_text = ifnull(input.Payload_JSON,"");
+		if(q_payload_text != "")
+		{
+			q_payload = q_payload_text.toMap();
+		}
+		quote_deal_id_text = ifnull(q_payload.get("deal_id"),"").toString().trim();
+		quote_id_text = "";
+		if(quote_number_text == "" && quote_deal_id_text == "")
+		{
+			out.put("error","get_quote_by_number requires a quote number in Query_Text or deal_id in Payload_JSON");
+		}
+		else
+		{
+			if(quote_number_text != "")
+			{
+				quote_subject_text = "Kinetic Bridge Quote " + quote_number_text;
+				found_quotes = zoho.crm.searchRecords("Quotes","(Subject:equals:" + quote_subject_text + ")");
+				if(found_quotes != null && found_quotes.size() > 0)
+				{
+					quote_id_text = ifnull(found_quotes.get(0).get("id"),"").toString();
+				}
+			}
+			else
+			{
+				related_quotes = zoho.crm.getRelatedRecords("Quotes","Deals",quote_deal_id_text.toLong());
+				latest_quote_id = 0;
+				if(related_quotes != null)
+				{
+					for each  related_quote in related_quotes
+					{
+						related_id_long = ifnull(related_quote.get("id"),"0").toLong();
+						if(related_id_long > latest_quote_id)
+						{
+							latest_quote_id = related_id_long;
+							quote_id_text = related_id_long.toString();
+							related_subject = ifnull(related_quote.get("Subject"),"").toString();
+							quote_number_text = related_subject.replaceFirst("Kinetic Bridge Quote ","",false).trim();
+						}
+					}
+				}
+			}
+			if(quote_id_text == "")
+			{
+				lookup_label = quote_number_text;
+				if(lookup_label == "")
+				{
+					lookup_label = "Deal " + quote_deal_id_text;
+				}
+				out.put("error","No CRM Quote found for " + lookup_label);
+			}
+			else
+			{
+				quote_rec = zoho.crm.getRecordById("Quotes",quote_id_text.toLong());
+				if(quote_rec == null)
+				{
+					out.put("error","CRM Quote " + quote_id_text + " not found");
+				}
+				else
+				{
+					out.put("quote_id",quote_id_text);
+					out.put("quote_number",quote_number_text);
+					out.put("subject",ifnull(quote_rec.get("Subject"),""));
+					out.put("valid_till",ifnull(quote_rec.get("Valid_Till"),"").toString());
+					out.put("description",ifnull(quote_rec.get("Description"),"").toString());
+					quote_deal = quote_rec.get("Deal_Name");
+					if(quote_deal != null)
+					{
+						out.put("deal_id",ifnull(quote_deal.get("id"),"").toString());
+						out.put("deal_name",ifnull(quote_deal.get("name"),"").toString());
+					}
+					quote_contact = quote_rec.get("Contact_Name");
+					if(quote_contact != null)
+					{
+						out.put("contact_id",ifnull(quote_contact.get("id"),"").toString());
+						out.put("contact_name",ifnull(quote_contact.get("name"),"").toString());
+					}
+					line_items = List();
+					quoted_rows = ifnull(quote_rec.get("Quoted_Items"),List());
+					for each  quoted_row in quoted_rows
+					{
+						qline = Map();
+						row_product = quoted_row.get("Product_Name");
+						if(row_product != null)
+						{
+							qline.put("product_id",ifnull(row_product.get("id"),"").toString());
+							qline.put("product_name",ifnull(row_product.get("name"),"").toString());
+						}
+						qline.put("quantity",ifnull(quoted_row.get("Quantity"),0));
+						qline.put("list_price",ifnull(quoted_row.get("List_Price"),0));
+						qline.put("total",ifnull(quoted_row.get("Total"),0));
+						line_items.add(qline);
+					}
+					out.put("line_items",line_items);
+					input.Request_Status = "done";
+				}
+			}
+		}
+	}
+	if(action_name == "get_lead")
+	{
+		lead_id_text = ifnull(input.Query_Text,"").trim();
+		if(lead_id_text == "")
+		{
+			out.put("error","get_lead requires a CRM Lead ID in Query_Text");
+		}
+		else
+		{
+			lead_rec = zoho.crm.getRecordById("Leads",lead_id_text.toLong());
+			if(lead_rec == null)
+			{
+				out.put("error","CRM Lead " + lead_id_text + " not found");
+			}
+			else
+			{
+				out.put("lead_id",lead_id_text);
+				out.put("name",ifnull(lead_rec.get("Full_Name"),""));
+				out.put("email",ifnull(lead_rec.get("Email"),""));
+				out.put("phone",ifnull(lead_rec.get("Phone"),""));
+				out.put("company",ifnull(lead_rec.get("Company"),""));
+				lead_addr = Map();
+				lead_addr.put("street",ifnull(lead_rec.get("Street"),""));
+				lead_addr.put("city",ifnull(lead_rec.get("City"),""));
+				lead_addr.put("state",ifnull(lead_rec.get("State"),""));
+				lead_addr.put("code",ifnull(lead_rec.get("Zip_Code"),""));
+				lead_addr.put("country",ifnull(lead_rec.get("Country"),""));
+				out.put("address",lead_addr);
+				input.Request_Status = "done";
+			}
+		}
+	}
+	known_actions = List();
+	known_actions.add("search_customers");
+	known_actions.add("get_customer");
+	known_actions.add("create_customer");
+	known_actions.add("get_quote_lines");
+	known_actions.add("expand_kit");
+	known_actions.add("get_tax");
+	known_actions.add("books_diag");
+	known_actions.add("search_deals");
+	known_actions.add("create_deal");
+	known_actions.add("get_deal");
+	known_actions.add("search_leads");
+	known_actions.add("get_lead");
+	known_actions.add("get_quote_by_number");
+	if(!known_actions.contains(action_name))
+	{
+		out.put("error","Unknown Action: " + action_name);
+	}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

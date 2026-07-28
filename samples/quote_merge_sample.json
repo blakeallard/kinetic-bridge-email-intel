@@ -1,0 +1,40 @@
+{
+ "quote_number": "TEST-QUOTE0002",
+ "quote_date": "2026-07-26",
+ "valid_till": "2026-08-25",
+ "contact_name": "Dana Whitfield",
+ "company_name": "Northgate Fleet Systems LLC",
+ "contact_email": "d.whitfield@northgatefleet.com",
+ "billing_street": "4820 Corbin Avenue",
+ "billing_city": "Torrance",
+ "billing_state": "CA",
+ "billing_code": "90503",
+ "billing_country": "USA",
+ "sub_total": "28,735.63",
+ "discount": "0.00",
+ "tax": "0.00",
+ "adjustment": "0.00",
+ "grand_total": "28,735.63",
+ "terms_and_conditions": "",
+ "line_items_block": "1. i-BMS15/6\n      Qty 20  x  $316.09   =   $6,321.84\n2. i-BMS15 Wire harness kit SINGLE PACK\n      Qty 20  x  $114.94   =   $2,298.85\n3. i-BMS Unified Creator License FULL\n      Qty 20  x  $683.91   =   $13,678.16",
+ "line_items": [
+  {
+   "line_items.name": "i-BMS15/6",
+   "line_items.qty": "20",
+   "line_items.unit_price": "$316.09",
+   "line_items.total": "$6,321.84"
+  },
+  {
+   "line_items.name": "i-BMS15 Wire harness kit SINGLE PACK",
+   "line_items.qty": "20",
+   "line_items.unit_price": "$114.94",
+   "line_items.total": "$2,298.85"
+  },
+  {
+   "line_items.name": "i-BMS Unified Creator License FULL",
+   "line_items.qty": "20",
+   "line_items.unit_price": "$683.91",
+   "line_items.total": "$13,678.16"
+  }
+ ]
+}

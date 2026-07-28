@@ -1,0 +1,191 @@
+map build_quote_merge_payload(string deal_id, string contact_id, string quote_number, string quote_date, string valid_until)
+{
+result = Map();
+result.put("status","skipped");
+result.put("reason","");
+result.put("deal_id","");
+result.put("contact_id","");
+result.put("contact_email","");
+result.put("merge_data",Map());
+result.put("line_count",0);
+safe_deal_id = ifnull(deal_id,"").trim();
+result.put("deal_id",safe_deal_id);
+safe_contact_id = ifnull(contact_id,"").trim();
+result.put("contact_id",safe_contact_id);
+if(safe_deal_id == "")
+{
+	result.put("reason","deal_id_missing");
+	return result;
+}
+deal = zoho.crm.getRecordById("Deals",safe_deal_id.toLong());
+if(deal == null || deal.get("id") == null)
+{
+	result.put("reason","deal_not_found");
+	return result;
+}
+merge = Map();
+merge.put("quote_number",ifnull(quote_number,"").trim());
+merge.put("quote_date",ifnull(quote_date,"").trim());
+merge.put("valid_till",ifnull(valid_until,"").trim());
+merge.put("terms_and_conditions","");
+company_name = "";
+account_lookup = deal.get("Account_Name");
+if(account_lookup != null)
+{
+	company_name = ifnull(account_lookup.get("name"),"");
+}
+contact_name = "";
+contact_email = "";
+billing_street = "";
+billing_city = "";
+billing_state = "";
+billing_code = "";
+billing_country = "";
+if(safe_contact_id != "")
+{
+	contact_record = zoho.crm.getRecordById("Contacts",safe_contact_id.toLong());
+	if(contact_record != null)
+	{
+		contact_name = ifnull(contact_record.get("Full_Name"),"");
+		contact_email = ifnull(contact_record.get("Email"),"").trim().toLowerCase();
+		billing_street = ifnull(contact_record.get("Mailing_Street"),"");
+		billing_city = ifnull(contact_record.get("Mailing_City"),"");
+		billing_state = ifnull(contact_record.get("Mailing_State"),"");
+		billing_code = ifnull(contact_record.get("Mailing_Zip"),"");
+		billing_country = ifnull(contact_record.get("Mailing_Country"),"");
+		if(company_name == "")
+		{
+			contact_account = contact_record.get("Account_Name");
+			if(contact_account != null)
+			{
+				company_name = ifnull(contact_account.get("name"),"");
+			}
+		}
+	}
+}
+merge.put("contact_name",contact_name);
+merge.put("company_name",company_name);
+merge.put("contact_email",contact_email);
+merge.put("billing_street",billing_street);
+merge.put("billing_city",billing_city);
+merge.put("billing_state",billing_state);
+merge.put("billing_code",billing_code);
+merge.put("billing_country",billing_country);
+newline = hexToText("0A");
+line_items_block = "";
+line_items = List();
+line_count = 0;
+sub_total_amount = 0.0;
+products = ifnull(deal.get("Associated_Products"),List());
+for each item in products
+{
+	quantity = ifnull(item.get("Quantity"),0).toDecimal();
+	if(quantity > 0)
+	{
+		line_count = line_count + 1;
+		product_name = "";
+		product = item.get("Product");
+		if(product != null)
+		{
+			product_name = ifnull(product.get("name"),"");
+		}
+		quantity_text = quantity.toString();
+		if(quantity_text.contains("."))
+		{
+			quantity_text = quantity_text.subString(0,quantity_text.indexOf("."));
+		}
+		line_money = Map();
+		line_money.put("list_price",item.get("List_Price"));
+		line_money.put("total",item.get("Total"));
+		for each line_money_key in line_money.keys()
+		{
+			amount = ifnull(line_money.get(line_money_key),0).toDecimal().round(2);
+			amount_text = amount.toString();
+			if(!amount_text.contains("."))
+			{
+				amount_text = amount_text + ".00";
+			}
+			else if(amount_text.length() - amount_text.indexOf(".") == 2)
+			{
+				amount_text = amount_text + "0";
+			}
+			amount_int = amount_text.subString(0,amount_text.indexOf("."));
+			amount_dec = amount_text.subString(amount_text.indexOf("."));
+			amount_grouped = "";
+			for each grouping_pass in {1,2,3,4}
+			{
+				if(amount_int.length() > 3)
+				{
+					amount_grouped = "," + amount_int.subString(amount_int.length() - 3) + amount_grouped;
+					amount_int = amount_int.subString(0,amount_int.length() - 3);
+				}
+			}
+			amount_text = amount_int + amount_grouped + amount_dec;
+			line_money.put(line_money_key,amount_text);
+		}
+		sub_total_amount = sub_total_amount + ifnull(item.get("Total"),0).toDecimal();
+		if(line_items_block != "")
+		{
+			line_items_block = line_items_block + newline;
+		}
+		line_items_block = line_items_block + line_count + ". " + product_name;
+		line_items_block = line_items_block + newline + "      Qty " + quantity_text + "  x  $" + line_money.get("list_price") + "   =   $" + line_money.get("total");
+		line_row = Map();
+		line_row.put("line_items.name",product_name);
+		line_row.put("line_items.qty",quantity_text);
+		line_row.put("line_items.unit_price","$" + line_money.get("list_price"));
+		line_row.put("line_items.total","$" + line_money.get("total"));
+		line_items.add(line_row);
+	}
+}
+if(line_count == 0)
+{
+	result.put("reason","no_line_items");
+	return result;
+}
+merge.put("line_items_block",line_items_block);
+merge.put("line_items",line_items);
+grand_total_amount = ifnull(deal.get("Amount"),0).toDecimal();
+if(grand_total_amount == 0)
+{
+	grand_total_amount = sub_total_amount;
+}
+money_fields = Map();
+money_fields.put("sub_total",sub_total_amount);
+money_fields.put("grand_total",grand_total_amount);
+for each money_key in money_fields.keys()
+{
+	amount = ifnull(money_fields.get(money_key),0).toDecimal().round(2);
+	amount_text = amount.toString();
+	if(!amount_text.contains("."))
+	{
+		amount_text = amount_text + ".00";
+	}
+	else if(amount_text.length() - amount_text.indexOf(".") == 2)
+	{
+		amount_text = amount_text + "0";
+	}
+	amount_int = amount_text.subString(0,amount_text.indexOf("."));
+	amount_dec = amount_text.subString(amount_text.indexOf("."));
+	amount_grouped = "";
+	for each grouping_pass in {1,2,3,4}
+	{
+		if(amount_int.length() > 3)
+		{
+			amount_grouped = "," + amount_int.subString(amount_int.length() - 3) + amount_grouped;
+			amount_int = amount_int.subString(0,amount_int.length() - 3);
+		}
+	}
+	amount_text = amount_int + amount_grouped + amount_dec;
+	merge.put(money_key,amount_text);
+}
+merge.put("discount","0.00");
+merge.put("tax","0.00");
+merge.put("adjustment","0.00");
+result.put("contact_email",contact_email);
+result.put("merge_data",merge);
+result.put("line_count",line_count);
+result.put("status","ready");
+result.put("reason","");
+return result;
+}
