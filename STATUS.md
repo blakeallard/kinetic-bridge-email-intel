@@ -47,8 +47,20 @@ mapping-table form + `Sign_Request_ID` field + `Signed` status (Creator), three 
 Flow connections, the two Flow branches, Sign webhook registration (capture one real
 payload log-only first), Bill's Tier sign-off on create-only folder writes.
 
+**Built (2026-07-28 afternoon): Command Center CRM widget** — Blake's verdict on the
+native Home builder was that card grids can't express the owner view he wants, so the
+real dashboard is now a custom CRM widget (`~/bevco/command-center-widget/`, same pattern
+as the QTS widget): read-only one-pager — approval queue + due tasks on top, lifecycle
+row (new inquiries → quotes → deals funnel), automation health + launchers below — and
+**every row deep-links** to the real CRM record / Mail / QTS. No writes. Vendored CRM
+embedded-app SDK, headless tests ALL PASS, `dist/command-center.zip` ready. Install:
+Setup → Developer Space → Widgets → upload zip, then place via the Home builder's
+Widgets tab on the `Command Center (dev)` layout (Blake-only until the demo). The four
+AI_Recommendations custom views built earlier today (Approval Queue / Blocked-Failed /
+Recently Executed / Fallback Review, shared Only-me) remain useful in-module.
+
 Also today: Command Center dashboard mockup published as an artifact for the Bill/Bryan
-meeting; `docs/crm_home_page_plan.md` refreshed (D1 closed — CRM Deals is the pipeline
+meeting (superseded by the real widget above); `docs/crm_home_page_plan.md` refreshed (D1 closed — CRM Deals is the pipeline
 of record); `docs/command_center_build_checklist.md` (dev-only layout, nobody's homepage
 touched); `docs/teaminbox_retirement_assessment.md` (verdict: migrate later, one-adapter
 blast radius).
