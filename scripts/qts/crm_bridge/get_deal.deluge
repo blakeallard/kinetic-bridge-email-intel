@@ -1,0 +1,59 @@
+if(ifnull(input.Action_field,"").trim() != "get_deal")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		deal_id_text = ifnull(input.Query_Text,"").trim();
+		if(deal_id_text == "")
+		{
+			out.put("error","get_deal requires a CRM Deal record ID in Query_Text");
+		}
+		else
+		{
+			deal = zoho.crm.getRecordById("Deals",deal_id_text.toLong());
+			if(deal == null)
+			{
+				out.put("error","Deal " + deal_id_text + " not found");
+			}
+			else
+			{
+				closed_stages = List();
+				closed_stages.add("Closed Won");
+				closed_stages.add("Closed Lost");
+				closed_stages.add("Closed Lost to Competition");
+				stage_val = ifnull(deal.get("Stage"),"").toString();
+				out.put("deal_id",deal_id_text);
+				out.put("deal_name",ifnull(deal.get("Deal_Name"),""));
+				out.put("stage",stage_val);
+				out.put("amount",ifnull(deal.get("Amount"),""));
+				out.put("modified_time",ifnull(deal.get("Modified_Time"),"").toString());
+				account_ref = deal.get("Account_Name");
+				if(account_ref != null)
+				{
+					out.put("account_name",ifnull(account_ref.get("name"),""));
+				}
+				contact_ref = deal.get("Contact_Name");
+				if(contact_ref != null)
+				{
+					out.put("contact_name",ifnull(contact_ref.get("name"),""));
+				}
+				is_closed = false;
+				if(closed_stages.contains(stage_val))
+				{
+					is_closed = true;
+				}
+				out.put("is_closed",is_closed);
+				input.Request_Status = "done";
+			}
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

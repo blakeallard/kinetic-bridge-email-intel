@@ -1,0 +1,64 @@
+if(ifnull(input.Action_field,"").trim() != "search_customers")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		query_text = ifnull(input.Query_Text,"").trim();
+		matches = List();
+		seen_ids = List();
+		if(query_text != "")
+		{
+			combined_criteria = "((Email:starts_with:" + query_text + ")or(Last_Name:starts_with:" + query_text + ")or(First_Name:starts_with:" + query_text + "))";
+			if(query_text.contains(" "))
+			{
+				name_tokens = query_text.toList(" ");
+				first_token = name_tokens.get(0).trim();
+				last_token = name_tokens.get(name_tokens.size() - 1).trim();
+				if(first_token != "" && last_token != "")
+				{
+					combined_criteria = "(" + combined_criteria + "or((First_Name:starts_with:" + first_token + ")and(Last_Name:starts_with:" + last_token + "))or((First_Name:starts_with:" + last_token + ")and(Last_Name:starts_with:" + first_token + ")))";
+				}
+			}
+			search_criteria_list = List();
+			search_criteria_list.add(combined_criteria);
+			for each  search_criteria in search_criteria_list
+			{
+				found = zoho.crm.searchRecords("Contacts",search_criteria);
+				if(found != null)
+				{
+					for each  contact in found
+					{
+						contact_id = contact.get("id").toString();
+						if(!seen_ids.contains(contact_id))
+						{
+							seen_ids.add(contact_id);
+							row = Map();
+							row.put("contact_id",contact_id);
+							row.put("name",ifnull(contact.get("Full_Name"),""));
+							row.put("email",ifnull(contact.get("Email"),""));
+							row.put("phone",ifnull(contact.get("Phone"),""));
+							account_ref = contact.get("Account_Name");
+							if(account_ref != null)
+							{
+								row.put("account_id",ifnull(account_ref.get("id"),"").toString());
+								row.put("account_name",ifnull(account_ref.get("name"),""));
+							}
+							matches.add(row);
+						}
+					}
+				}
+			}
+		}
+		out.put("matches",matches);
+		input.Request_Status = "done";
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

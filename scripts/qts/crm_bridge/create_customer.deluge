@@ -1,0 +1,110 @@
+if(ifnull(input.Action_field,"").trim() != "create_customer")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		payload = Map();
+		payload_text = ifnull(input.Payload_JSON,"");
+		if(payload_text != "")
+		{
+			payload = payload_text.toMap();
+		}
+		email_text = ifnull(payload.get("email"),"").trim();
+		last_name_text = ifnull(payload.get("last_name"),"").trim();
+		if(last_name_text == "")
+		{
+			out.put("error","create_customer requires last_name");
+		}
+		else
+		{
+			existing_contact_id = "";
+			if(email_text != "")
+			{
+				dup = zoho.crm.searchRecords("Contacts","(Email:equals:" + email_text + ")");
+				if(dup != null)
+				{
+					if(dup.size() > 0)
+					{
+						existing_contact_id = dup.get(0).get("id").toString();
+					}
+				}
+			}
+			if(existing_contact_id != "")
+			{
+				out.put("duplicate",true);
+				out.put("contact_id",existing_contact_id);
+				out.put("message","A CRM Contact with this email already exists; reusing it.");
+				input.Request_Status = "done";
+			}
+			else
+			{
+				account_id_text = "";
+				company_text = ifnull(payload.get("company"),"").trim();
+				if(company_text != "")
+				{
+					acc_found = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + company_text + ")");
+					if(acc_found != null)
+					{
+						if(acc_found.size() > 0)
+						{
+							account_id_text = acc_found.get(0).get("id").toString();
+						}
+					}
+					if(account_id_text == "")
+					{
+						account_data = Map();
+						account_data.put("Account_Name",company_text);
+						account_data.put("Billing_Street",ifnull(payload.get("billing_street"),""));
+						account_data.put("Billing_City",ifnull(payload.get("billing_city"),""));
+						account_data.put("Billing_State",ifnull(payload.get("billing_state"),""));
+						account_data.put("Billing_Code",ifnull(payload.get("billing_code"),""));
+						account_data.put("Billing_Country",ifnull(payload.get("billing_country"),""));
+						new_account = zoho.crm.createRecord("Accounts",account_data);
+						if(new_account != null)
+						{
+							account_id_text = ifnull(new_account.get("id"),"").toString();
+						}
+					}
+				}
+				contact_data = Map();
+				contact_data.put("First_Name",ifnull(payload.get("first_name"),""));
+				contact_data.put("Last_Name",last_name_text);
+				if(email_text != "")
+				{
+					contact_data.put("Email",email_text);
+				}
+				contact_data.put("Phone",ifnull(payload.get("phone"),""));
+				contact_data.put("Mailing_Street",ifnull(payload.get("billing_street"),""));
+				contact_data.put("Mailing_City",ifnull(payload.get("billing_city"),""));
+				contact_data.put("Mailing_State",ifnull(payload.get("billing_state"),""));
+				contact_data.put("Mailing_Zip",ifnull(payload.get("billing_code"),""));
+				contact_data.put("Mailing_Country",ifnull(payload.get("billing_country"),""));
+				if(account_id_text != "")
+				{
+					contact_data.put("Account_Name",account_id_text);
+				}
+				new_contact = zoho.crm.createRecord("Contacts",contact_data);
+				if(new_contact != null)
+				{
+					out.put("contact_id",ifnull(new_contact.get("id"),"").toString());
+					out.put("account_id",account_id_text);
+					out.put("duplicate",false);
+					input.Request_Status = "done";
+				}
+				else
+				{
+					out.put("error","CRM Contact creation returned null");
+				}
+			}
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

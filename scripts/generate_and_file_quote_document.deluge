@@ -9,6 +9,9 @@ result.put("quote_record_id","");
 result.put("quote_action","");
 result.put("first_quote_stamped","no");
 result.put("email_sent","no");
+result.put("email_associated","no");
+result.put("email_associated_account","no");
+result.put("deal_renamed","no");
 template_document_id = "gx3mq1bd0a0083f0847fe8d6696a136a0b11b";
 safe_deal_id = ifnull(deal_id,"").trim();
 if(safe_deal_id == "")
@@ -47,6 +50,8 @@ safe_contact_id = ifnull(contact_id,"").trim();
 quote_record_id = "";
 quoted_items = List();
 deal_owner_email = "";
+account_id_text = "";
+company_name_text = ifnull(merge_data.get("company_name"),"").toString().trim();
 try
 {
 	deal_record = zoho.crm.getRecordById("Deals",safe_deal_id.toLong());
@@ -56,6 +61,19 @@ try
 		if(owner_ref != null)
 		{
 			deal_owner_email = ifnull(owner_ref.get("email"),"").toString().trim();
+		}
+		account_ref = deal_record.get("Account_Name");
+		if(account_ref != null)
+		{
+			account_id_text = ifnull(account_ref.get("id"),"").toString().trim();
+			if(company_name_text == "")
+			{
+				company_name_text = ifnull(account_ref.get("name"),"").toString().trim();
+			}
+		}
+		if(company_name_text == "")
+		{
+			company_name_text = ifnull(deal_record.get("Deal_Name"),"").toString().trim();
 		}
 		products = ifnull(deal_record.get("Associated_Products"),List());
 		for each item in products
@@ -209,10 +227,38 @@ if(safe_contact_id != "" && quote_number != "")
 		}
 	}
 }
+// Keep Deal_Name aligned with the CURRENT quote number (fixes …-0005 chip on a 0006 package).
+if(quote_number != "" && safe_deal_id != "")
+{
+	deal_label_company = company_name_text;
+	quote_suffix_marker = " - TEST-QUOTE";
+	if(deal_label_company.contains(quote_suffix_marker))
+	{
+		deal_label_company = deal_label_company.subString(0,deal_label_company.indexOf(quote_suffix_marker)).trim();
+	}
+	if(deal_label_company == "")
+	{
+		deal_label_company = "Quote";
+	}
+	deal_name_update = Map();
+	deal_name_update.put("Deal_Name",deal_label_company + " - " + quote_number);
+	try
+	{
+		deal_rename_response = zoho.crm.updateRecord("Deals",safe_deal_id.toLong(),deal_name_update);
+		if(deal_rename_response != null && ifnull(deal_rename_response.get("status"),"") != "error")
+		{
+			result.put("deal_renamed","yes");
+			result.put("deal_name",deal_label_company + " - " + quote_number);
+		}
+	}
+	catch (deal_rename_error)
+	{
+		result.put("deal_renamed","no");
+	}
+}
 safe_contact_email = ifnull(contact_email,"").trim();
 if(send_email && safe_contact_email != "")
 {
-	newline = hexToText("0A");
 	is_revision = result.get("quote_action") == "updated";
 	email_subject = "Your Kinetic Bridge quote " + quote_number;
 	intro_line = "Thank you for your interest in Kinetic Bridge. Please find your quote " + quote_number + " attached.";
@@ -221,10 +267,11 @@ if(send_email && safe_contact_email != "")
 		email_subject = "Your updated Kinetic Bridge quote " + quote_number;
 		intro_line = "Please find the updated version of your quote " + quote_number + " attached. This replaces the previous version.";
 	}
-	email_body = "Hello," + newline + newline;
-	email_body = email_body + intro_line + newline + newline;
-	email_body = email_body + "The quote is valid until the date shown on the document. Reply to this email with any questions and we will be glad to help." + newline + newline;
-	email_body = email_body + "Best regards," + newline + "The Kinetic Bridge Team" + newline + "a BEVCO company";
+	// HTML body: Flow sendmail collapses plain \\n; <br> survives Proton/Gmail rendering.
+	email_body = "Hello,<br><br>";
+	email_body = email_body + intro_line + "<br><br>";
+	email_body = email_body + "The quote is valid until the date shown on the document. Reply to this email with any questions and we will be glad to help.<br><br>";
+	email_body = email_body + "Best regards,<br>The Kinetic Bridge Team<br>a BEVCO company";
 	mail_from = zoho.adminuserid;
 	if(deal_owner_email != "")
 	{
@@ -262,6 +309,113 @@ if(send_email && safe_contact_email != "")
 		]
 		result.put("email_sent","yes");
 		result.put("email_from","admin_fallback");
+		mail_from = zoho.adminuserid;
+	}
+	// Append outbound quote mail to CRM Emails activity (Contact + Account). Best-effort.
+	if(result.get("email_sent") == "yes")
+	{
+		assoc_message_id = "qts-quote-" + quote_number + "-" + zoho.currenttime.toString("yyyyMMddHHmmss");
+		assoc_date_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX","America/Los_Angeles");
+		from_item = Map();
+		from_item.put("user_name",mail_from);
+		from_item.put("email",mail_from.toString().trim().toLowerCase());
+		to_item = Map();
+		to_item.put("user_name",safe_contact_email);
+		to_item.put("email",safe_contact_email.toLowerCase());
+		to_list = List();
+		to_list.add(to_item);
+		email_item = Map();
+		email_item.put("from",from_item);
+		email_item.put("to",to_list);
+		email_item.put("subject",email_subject);
+		email_item.put("content",email_body);
+		email_item.put("mail_format","html");
+		email_item.put("date_time",assoc_date_time);
+		email_item.put("sent",true);
+		email_item.put("original_message_id",assoc_message_id);
+		if(quote_cc != "")
+		{
+			cc_list = List();
+			cc_item = Map();
+			cc_item.put("user_name",quote_cc);
+			cc_item.put("email",quote_cc.toLowerCase());
+			cc_list.add(cc_item);
+			email_item.put("cc",cc_list);
+		}
+		emails = List();
+		emails.add(email_item);
+		request_body = Map();
+		request_body.put("Emails",emails);
+		if(safe_contact_id != "")
+		{
+			try
+			{
+				assoc_response = invokeurl
+				[
+					url :"https://www.zohoapis.com/crm/v8/Contacts/" + safe_contact_id + "/actions/associate_email"
+					type :POST
+					parameters:request_body.toString()
+					connection:"zoho_crm_to_zoho_flow"
+				];
+				assoc_code = "";
+				assoc_status = "";
+				assoc_items = assoc_response.get("Emails");
+				if(assoc_items != null && assoc_items.size() > 0)
+				{
+					assoc_row = assoc_items.get(0);
+					assoc_code = ifnull(assoc_row.get("code"),"").toString();
+					assoc_status = ifnull(assoc_row.get("status"),"").toString();
+				}
+				else
+				{
+					assoc_code = ifnull(assoc_response.get("code"),"").toString();
+					assoc_status = ifnull(assoc_response.get("status"),"").toString();
+				}
+				if(assoc_code == "SUCCESS" || assoc_code == "DUPLICATE_DATA" || assoc_status == "success")
+				{
+					result.put("email_associated","yes");
+				}
+			}
+			catch (assoc_contact_error)
+			{
+				result.put("email_associated","no");
+			}
+		}
+		if(account_id_text != "")
+		{
+			try
+			{
+				assoc_account_response = invokeurl
+				[
+					url :"https://www.zohoapis.com/crm/v8/Accounts/" + account_id_text + "/actions/associate_email"
+					type :POST
+					parameters:request_body.toString()
+					connection:"zoho_crm_to_zoho_flow"
+				];
+				acct_code = "";
+				acct_status = "";
+				acct_items = assoc_account_response.get("Emails");
+				if(acct_items != null && acct_items.size() > 0)
+				{
+					acct_row = acct_items.get(0);
+					acct_code = ifnull(acct_row.get("code"),"").toString();
+					acct_status = ifnull(acct_row.get("status"),"").toString();
+				}
+				else
+				{
+					acct_code = ifnull(assoc_account_response.get("code"),"").toString();
+					acct_status = ifnull(assoc_account_response.get("status"),"").toString();
+				}
+				if(acct_code == "SUCCESS" || acct_code == "DUPLICATE_DATA" || acct_status == "success")
+				{
+					result.put("email_associated_account","yes");
+				}
+			}
+			catch (assoc_account_error)
+			{
+				result.put("email_associated_account","no");
+			}
+		}
 	}
 }
 result.put("status","filed");

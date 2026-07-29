@@ -1,0 +1,77 @@
+if(ifnull(input.Action_field,"").trim() != "expand_kit")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		payload = Map();
+		payload_text = ifnull(input.Payload_JSON,"");
+		if(payload_text != "")
+		{
+			payload = payload_text.toMap();
+		}
+		kit_key_text = ifnull(payload.get("kit_key"),"").toString().trim();
+		series_cells_text = ifnull(payload.get("series_cell_count"),"").toString().trim();
+		if(kit_key_text == "")
+		{
+			out.put("error","expand_kit requires kit_key in Payload_JSON");
+		}
+		else
+		{
+			series_cells_valid = true;
+			series_cells = 0;
+			if(series_cells_text != "")
+			{
+				if(series_cells_text.isNumber())
+				{
+					series_cells = series_cells_text.toLong();
+				}
+				else
+				{
+					series_cells_valid = false;
+				}
+			}
+			if(!series_cells_valid)
+			{
+				out.put("error","expand_kit: series_cell_count must be a whole number (got \"" + series_cells_text + "\")");
+			}
+			else
+			{
+				resp = thisapp.fn_get_kit_components(kit_key_text,series_cells);
+				err = ifnull(resp.get("error"),"").toString();
+				if(err != "")
+				{
+					out.put("error",err);
+				}
+				else
+				{
+					lines = List();
+					resp_lines = resp.get("lines");
+					if(resp_lines != null)
+					{
+						for each  line in resp_lines
+						{
+							row = Map();
+							row.put("part_number",ifnull(line.get("Part_Number"),""));
+							row.put("qty",ifnull(line.get("Qty"),0));
+							row.put("kit_warning",ifnull(line.get("Kit_Warning"),""));
+							lines.add(row);
+						}
+					}
+					out.put("kit_key",kit_key_text);
+					out.put("lines",lines);
+					out.put("notices",ifnull(resp.get("notices"),List()));
+					input.Request_Status = "done";
+				}
+			}
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

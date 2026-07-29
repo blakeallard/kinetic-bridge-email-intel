@@ -191,12 +191,13 @@ Runs on Blueprint approval of an `AI_Recommendations` record:
 | --- | --- | --- |
 | 1 | `materialize_pending_lead` | Creates the deferred Lead, owned by the approver. No-ops on an already-matched record |
 | 2 | `associate_email_to_crm_record` | Attaches the source email to the Lead just created. Inputs are `${materializePendingLead_N.normalized_message}` and `${materializePendingLead_N.crm_context}`; on a matched or rerun record both maps come back empty and it no-ops |
-| 3 | `execute_approved_recommendation` | Creates the CRM Task, owned by the approver, due +2 days |
+| 3 | `execute_approved_recommendation` | Claims the recommendation and marks `Executed` — **does not** create a CRM Task (Bill 2026-07-28) |
 
-Order matters — the Lead must exist before the email can attach to it, and before the Task
-can link to it. **Known limitation:** the association payload is emitted only on
-`status = "created"`, so if block 1 succeeds and block 2 fails, a rerun returns
-`target_already_set` and will not retry the association. Attach the email by hand.
+Order matters — the Lead must exist before the email can attach to it. The executor only
+finalizes bookkeeping after materialize + associate. **Known limitation:** the association
+payload is emitted only on `status = "created"`, so if block 1 succeeds and block 2 fails,
+a rerun returns `target_already_set` and will not retry the association. Attach the email
+by hand.
 
 ### Routing
 

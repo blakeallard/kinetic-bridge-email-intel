@@ -1,0 +1,45 @@
+if(ifnull(input.Action_field,"").trim() != "get_lead")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		lead_id_text = ifnull(input.Query_Text,"").trim();
+		if(lead_id_text == "")
+		{
+			out.put("error","get_lead requires a CRM Lead ID in Query_Text");
+		}
+		else
+		{
+			lead_rec = zoho.crm.getRecordById("Leads",lead_id_text.toLong());
+			if(lead_rec == null)
+			{
+				out.put("error","CRM Lead " + lead_id_text + " not found");
+			}
+			else
+			{
+				out.put("lead_id",lead_id_text);
+				out.put("name",ifnull(lead_rec.get("Full_Name"),""));
+				out.put("email",ifnull(lead_rec.get("Email"),""));
+				out.put("phone",ifnull(lead_rec.get("Phone"),""));
+				out.put("company",ifnull(lead_rec.get("Company"),""));
+				lead_addr = Map();
+				lead_addr.put("street",ifnull(lead_rec.get("Street"),""));
+				lead_addr.put("city",ifnull(lead_rec.get("City"),""));
+				lead_addr.put("state",ifnull(lead_rec.get("State"),""));
+				lead_addr.put("code",ifnull(lead_rec.get("Zip_Code"),""));
+				lead_addr.put("country",ifnull(lead_rec.get("Country"),""));
+				out.put("address",lead_addr);
+				input.Request_Status = "done";
+			}
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

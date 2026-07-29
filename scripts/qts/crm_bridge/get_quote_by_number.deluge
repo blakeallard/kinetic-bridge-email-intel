@@ -1,0 +1,115 @@
+if(ifnull(input.Action_field,"").trim() != "get_quote_by_number")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		quote_number_text = ifnull(input.Query_Text,"").trim();
+		q_payload = Map();
+		q_payload_text = ifnull(input.Payload_JSON,"");
+		if(q_payload_text != "")
+		{
+			q_payload = q_payload_text.toMap();
+		}
+		quote_deal_id_text = ifnull(q_payload.get("deal_id"),"").toString().trim();
+		quote_id_text = "";
+		if(quote_number_text == "" && quote_deal_id_text == "")
+		{
+			out.put("error","get_quote_by_number requires a quote number in Query_Text or deal_id in Payload_JSON");
+		}
+		else
+		{
+			if(quote_number_text != "")
+			{
+				quote_subject_text = "Kinetic Bridge Quote " + quote_number_text;
+				found_quotes = zoho.crm.searchRecords("Quotes","(Subject:equals:" + quote_subject_text + ")");
+				if(found_quotes != null && found_quotes.size() > 0)
+				{
+					quote_id_text = ifnull(found_quotes.get(0).get("id"),"").toString();
+				}
+			}
+			else
+			{
+				related_quotes = zoho.crm.getRelatedRecords("Quotes","Deals",quote_deal_id_text.toLong());
+				latest_quote_id = 0;
+				if(related_quotes != null)
+				{
+					for each  related_quote in related_quotes
+					{
+						related_id_long = ifnull(related_quote.get("id"),"0").toLong();
+						if(related_id_long > latest_quote_id)
+						{
+							latest_quote_id = related_id_long;
+							quote_id_text = related_id_long.toString();
+							related_subject = ifnull(related_quote.get("Subject"),"").toString();
+							quote_number_text = related_subject.replaceFirst("Kinetic Bridge Quote ","",false).trim();
+						}
+					}
+				}
+			}
+			if(quote_id_text == "")
+			{
+				lookup_label = quote_number_text;
+				if(lookup_label == "")
+				{
+					lookup_label = "Deal " + quote_deal_id_text;
+				}
+				out.put("error","No CRM Quote found for " + lookup_label);
+			}
+			else
+			{
+				quote_rec = zoho.crm.getRecordById("Quotes",quote_id_text.toLong());
+				if(quote_rec == null)
+				{
+					out.put("error","CRM Quote " + quote_id_text + " not found");
+				}
+				else
+				{
+					out.put("quote_id",quote_id_text);
+					out.put("quote_number",quote_number_text);
+					out.put("subject",ifnull(quote_rec.get("Subject"),""));
+					out.put("valid_till",ifnull(quote_rec.get("Valid_Till"),"").toString());
+					out.put("description",ifnull(quote_rec.get("Description"),"").toString());
+					quote_deal = quote_rec.get("Deal_Name");
+					if(quote_deal != null)
+					{
+						out.put("deal_id",ifnull(quote_deal.get("id"),"").toString());
+						out.put("deal_name",ifnull(quote_deal.get("name"),"").toString());
+					}
+					quote_contact = quote_rec.get("Contact_Name");
+					if(quote_contact != null)
+					{
+						out.put("contact_id",ifnull(quote_contact.get("id"),"").toString());
+						out.put("contact_name",ifnull(quote_contact.get("name"),"").toString());
+					}
+					line_items = List();
+					quoted_rows = ifnull(quote_rec.get("Quoted_Items"),List());
+					for each  quoted_row in quoted_rows
+					{
+						qline = Map();
+						row_product = quoted_row.get("Product_Name");
+						if(row_product != null)
+						{
+							qline.put("product_id",ifnull(row_product.get("id"),"").toString());
+							qline.put("product_name",ifnull(row_product.get("name"),"").toString());
+						}
+						qline.put("quantity",ifnull(quoted_row.get("Quantity"),0));
+						qline.put("list_price",ifnull(quoted_row.get("List_Price"),0));
+						qline.put("total",ifnull(quoted_row.get("Total"),0));
+						line_items.add(qline);
+					}
+					out.put("line_items",line_items);
+					input.Request_Status = "done";
+				}
+			}
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

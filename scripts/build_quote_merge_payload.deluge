@@ -1,4 +1,4 @@
-map build_quote_merge_payload(string deal_id, string contact_id, string quote_number, string quote_date, string valid_until)
+map build_quote_merge_payload(string deal_id, string contact_id, string quote_number, string quote_date, string valid_until, string payment_terms_days)
 {
 result = Map();
 result.put("status","skipped");
@@ -23,10 +23,29 @@ if(deal == null || deal.get("id") == null)
 	result.put("reason","deal_not_found");
 	return result;
 }
+days_raw = ifnull(payment_terms_days,"").trim();
+payment_days = 30;
+if(days_raw != "")
+{
+	try
+	{
+		parsed_days = days_raw.toLong();
+		if(parsed_days >= 1 && parsed_days <= 365)
+		{
+			payment_days = parsed_days;
+		}
+	}
+	catch (payment_days_error)
+	{
+		payment_days = 30;
+	}
+}
+payment_terms_text = "Payment Terms: Net " + payment_days + ".";
 merge = Map();
 merge.put("quote_number",ifnull(quote_number,"").trim());
 merge.put("quote_date",ifnull(quote_date,"").trim());
 merge.put("valid_till",ifnull(valid_until,"").trim());
+merge.put("payment_terms",payment_terms_text);
 merge.put("terms_and_conditions","");
 company_name = "";
 account_lookup = deal.get("Account_Name");
@@ -94,9 +113,18 @@ for each item in products
 		{
 			quantity_text = quantity_text.subString(0,quantity_text.indexOf("."));
 		}
+		// Internal money keys stay short (list_price / total). Writer merge keys
+		// are line_items.* on the row map below — never rename these two or the
+		// TOTAL column prints the literal "$null".
+		unit_price_amount = ifnull(item.get("List_Price"),0).toDecimal();
+		line_total_amount = ifnull(item.get("Total"),0).toDecimal();
+		if(line_total_amount == 0 && unit_price_amount != 0)
+		{
+			line_total_amount = (quantity * unit_price_amount).round(2);
+		}
 		line_money = Map();
-		line_money.put("list_price",item.get("List_Price"));
-		line_money.put("total",item.get("Total"));
+		line_money.put("list_price",unit_price_amount);
+		line_money.put("total",line_total_amount);
 		for each line_money_key in line_money.keys()
 		{
 			amount = ifnull(line_money.get(line_money_key),0).toDecimal().round(2);
@@ -123,7 +151,7 @@ for each item in products
 			amount_text = amount_int + amount_grouped + amount_dec;
 			line_money.put(line_money_key,amount_text);
 		}
-		sub_total_amount = sub_total_amount + ifnull(item.get("Total"),0).toDecimal();
+		sub_total_amount = sub_total_amount + line_total_amount;
 		if(line_items_block != "")
 		{
 			line_items_block = line_items_block + newline;

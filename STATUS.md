@@ -6,7 +6,48 @@
 
 Zoho Task ID: 2543412000001583003
 
-**Last updated:** 2026-07-26
+**Last updated:** 2026-07-28
+
+## Built (pending Creator field + Flow map + Writer upload) — Payment Terms Net N (2026-07-28)
+
+Bryan: one typeable number field for payment days; PDF shows `Payment Terms: Net {N}.`
+
+- QTS widget: `Net [number]` input (`#f-payment-days`), default **30**, saves
+  `Payment_Terms_Days` on `Quote_Request`.
+- `build_quote_merge_payload` new arg `payment_terms_days` → merge field `payment_terms`.
+- Writer v4 template: hardcoded `Payment Terms: Net 30.` replaced with `payment_terms`
+  merge field (`artifacts/qts_quote_template_v4.docx`).
+- t71 `fn_generate_pdf` reads `Payment_Terms_Days` (falls back to 30).
+
+**Blake deploy:**
+1. Creator QTS: add Number field **`Payment_Terms_Days`** on form `Quote_Request`
+   (and expose on `Quote_Request_Report` if needed for load).
+2. Flow `build_quote_merge_payload`: add 6th input → map from trigger
+   `Payment_Terms_Days`.
+3. Re-upload Writer template v4 (or paste merge field live to match).
+4. Re-import `~/bevco/qts-quote-builder/dist/qts-quote-builder.zip`.
+
+**Validation:** `python3 -m unittest tests.test_quote_document_artifacts`;
+`node ~/bevco/qts-quote-builder/tests/widget_state_test.js`.
+
+## Built (pending Flow paste) — Approve skips CRM Task (2026-07-28)
+
+Bill: Approve should create CRM people/company records as today
+(`materialize_pending_lead` + `associate_email`) and **bypass Task creation**.
+
+- `scripts/execute_approved_recommendation.deluge` — after conditional claim, writes
+  `Execution_Status=Executed` only; `task_created=no`, blank `executed_task_id`; no
+  `createRecord("Tasks")` / Events.
+- `scripts/execution_policy.py` — same contract; post-claim failures are only
+  `post_execution_write_failed`.
+- Tests + docs updated for the no-Task path.
+
+**Blake deploy:** paste `execute_approved_recommendation` into Flow. Retest Approve on a
+pending unmatched sender: Lead/Contact/Account as before, **no new CRM Task**,
+recommendation `Executed`.
+
+**Validation:** `python3 -m unittest tests.test_execution_policy tests.test_deluge_parity`
+(100 OK).
 
 Canonical current-state file:
 
@@ -17,6 +58,68 @@ Current source of truth:
 - This GitHub repo is the source of truth for task documentation, implementation notes, scripts, and approved artifacts.
 - Zoho Projects is the source of truth for intake status unless explicitly documented otherwise.
 - Do not modify Zoho runtime systems, Creator, CRM, Books, Flow, Sheet, or WorkDrive unless explicitly approved.
+
+## Fixed (pending live paste) — QTS TOTAL `$null` + double email (2026-07-28)
+
+Three defects from the TEST-QUOTE0006 / Writer v4 live path:
+
+1. **Writer TOTAL showed `$null`.** A bad rename put `line_items.total` into the
+   internal money map while getters still used `line_money.get("total")` → string
+   concat printed the literal `$null`. Restored short internal keys (`list_price` /
+   `total`); Writer keys stay on the row as `line_items.name` / `qty` / `unit_price` /
+   `total`.
+2. **Blank CRM `Total`.** When `Associated_Products.Total` is 0/blank, compute
+   `qty × List_Price` before formatting; subtotal uses the hardened amount.
+3. **Double client email from one Generate click.** Widget Generate cancels pending
+   autosave and, for a saved record, does **one** `Status → Package Requested` write
+   (never Draft save + Status in the same click). A second deliberate click is a
+   **resend** and is allowed. Autosave/markDirty/saveDraft stay inert after Package
+   Requested / Send for Signature / Signed so a late Draft write cannot race the
+   same click.
+
+**Files:** `scripts/build_quote_merge_payload.deluge` (this repo);
+`~/bevco/qts-quote-builder/app/widget.js` + `dist/qts-quote-builder.zip`.
+
+**Blake deploy:** paste `build_quote_merge_payload` into the Flow function; re-import
+`dist/qts-quote-builder.zip` into the QTS Creator widget. Retest TEST-QUOTE0006 (or a
+fresh draft): one email per click, TOTAL column filled; second Generate click resends.
+
+**Live verified 2026-07-28:** TEST-QUOTE0006 Writer PDF shows filled TOTAL column
+(e.g. `$1,896.55`) — `$null` gone.
+
+**Validation:** `python3 -m unittest tests.test_quote_document_artifacts` (63 OK);
+`node ~/bevco/qts-quote-builder/tests/widget_state_test.js` (ALL TESTS PASS).
+
+## Built (pending Flow paste) — quote email HTML + CRM activity + Deal rename (2026-07-28)
+
+In `scripts/generate_and_file_quote_document.deluge`:
+
+1. **Email body** uses HTML `<br>` paragraphs (plain `\n` collapsed to one line in Proton).
+2. **After successful sendmail**, best-effort `associate_email` to Contact and Account
+   (`sent: true`, `mail_format: html`, unique `qts-quote-<number>-<timestamp>` message id).
+   Failures never abort the filed result; result carries `email_associated` /
+   `email_associated_account`.
+3. **Deal_Name** updated to `{company} - {current quote_number}` so the QTS chip matches
+   the package (fixes `…-TEST-QUOTE0005` while generating 0006).
+
+**Blake deploy:** paste `generate_and_file_quote_document` into Flow. Retest Generate on
+TEST-QUOTE0006: multi-line email, Contact Emails shows outbound, Deal name ends in 0006.
+
+## Built (pending Creator deploy) — CRM_Bridge split per action (2026-07-28)
+
+Creator **dev** was dying with `Total number of External Call Statements exceeded` after
+modest QTS testing (~20 lookups). Root cause: one mega on-create workflow held **~25**
+`zoho.crm` / `invokeurl` statements. Fix: **one workflow per `Action_field`**.
+
+- Source: `scripts/qts/crm_bridge/<action>.deluge` (13 actions; max **5** external stmts
+  in any one file — `create_deal`).
+- Deploy steps: `scripts/qts/crm_bridge/DEPLOY.md` — disable/delete the old mega
+  workflow, create 13 Created-workflows with `Action_field == "<action>"`, paste each
+  file. Widget unchanged (no zip re-import).
+- Monolith `scripts/qts/crm_bridge_on_create.deluge` is now a pointer only — do not paste.
+
+**Validation:** `python3 -m unittest tests.test_quote_document_artifacts` (includes
+`TestCrmBridgeSplit`).
 
 ## Built (repo, 2026-07-28): Zoho Sign end-to-end + WorkDrive filing
 

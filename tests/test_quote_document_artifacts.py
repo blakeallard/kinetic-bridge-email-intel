@@ -23,13 +23,19 @@ class TestQuoteMergePayload(unittest.TestCase):
     def test_quote_identity_comes_from_the_creator_trigger_not_the_model(self):
         self.assertIn(
             "map build_quote_merge_payload(string deal_id, string contact_id,"
-            " string quote_number, string quote_date, string valid_until)",
+            " string quote_number, string quote_date, string valid_until,"
+            " string payment_terms_days)",
             self.source,
         )
 
     def test_every_sample_key_is_written_to_the_merge_map(self):
         for key in self.sample:
             self.assertRegex(self.source, rf'(merge|money_fields)\.put\("{key}"')
+
+    def test_payment_terms_come_from_the_days_argument(self):
+        self.assertIn('payment_terms_text = "Payment Terms: Net " + payment_days + "."', self.source)
+        self.assertIn('merge.put("payment_terms",payment_terms_text)', self.source)
+        self.assertIn("payment_days = 30", self.source)
 
     def test_money_amounts_gain_thousands_separators(self):
         self.assertEqual(self.source.count('for each grouping_pass in {1,2,3,4}'), 2)
@@ -57,9 +63,20 @@ class TestQuoteMergePayload(unittest.TestCase):
         self.assertIn("if(quantity > 0)", self.source)
 
     def test_totals_are_computed_from_lines_with_the_deal_amount_preferred(self):
-        self.assertIn('sub_total_amount = sub_total_amount + ifnull(item.get("Total"),0).toDecimal()', self.source)
+        self.assertIn("sub_total_amount = sub_total_amount + line_total_amount", self.source)
         self.assertIn('grand_total_amount = ifnull(deal.get("Amount"),0).toDecimal()', self.source)
         self.assertIn("grand_total_amount = sub_total_amount", self.source)
+
+    def test_blank_line_total_is_qty_times_unit_price(self):
+        self.assertIn('unit_price_amount = ifnull(item.get("List_Price"),0).toDecimal()', self.source)
+        self.assertIn('line_total_amount = ifnull(item.get("Total"),0).toDecimal()', self.source)
+        self.assertIn("if(line_total_amount == 0 && unit_price_amount != 0)", self.source)
+        self.assertIn("line_total_amount = (quantity * unit_price_amount).round(2)", self.source)
+        # Writer keys live on line_row; internal format map keeps short names so
+        # "$" + line_money.get("total") cannot become the literal "$null".
+        self.assertIn('line_money.put("total",line_total_amount)', self.source)
+        self.assertNotIn('line_money.put("line_items.total"', self.source)
+        self.assertIn('line_row.put("line_items.total","$" + line_money.get("total"))', self.source)
 
     def test_money_values_are_rounded_to_two_decimals_and_padded(self):
         self.assertIn(".toDecimal().round(2)", self.source)
@@ -152,7 +169,8 @@ class TestGenerateAndFileQuoteDocument(unittest.TestCase):
 
     def test_the_email_is_gated_on_the_flow_flag_and_a_recipient(self):
         self.assertIn('if(send_email && safe_contact_email != "")', self.source)
-        self.assertEqual(self.source.count("sendmail"), 2)
+        # Two sendmail blocks (owner + admin fallback); ignore comment mentions.
+        self.assertEqual(self.source.count("\tsendmail"), 2)
         self.assertIn("Attachments : file:merged_file", self.source)
 
     def test_the_email_sends_from_the_deal_owner_with_admin_fallback(self):
@@ -177,6 +195,46 @@ class TestGenerateAndFileQuoteDocument(unittest.TestCase):
             self.source,
         )
         self.assertIn("This replaces the previous version.", self.source)
+
+    def test_the_email_body_uses_html_breaks_not_plain_newlines(self):
+        self.assertIn('email_body = "Hello,<br><br>";', self.source)
+        self.assertIn(
+            'email_body = email_body + "Best regards,<br>The Kinetic Bridge Team<br>a BEVCO company"',
+            self.source,
+        )
+        # Plain \\n bodies collapse in Flow sendmail / Proton — must not be the send path.
+        self.assertNotIn('email_body = "Hello," + newline', self.source)
+
+    def test_outbound_quote_email_is_associated_to_contact_and_account(self):
+        self.assertIn('email_item.put("sent",true)', self.source)
+        self.assertIn('email_item.put("mail_format","html")', self.source)
+        self.assertIn("/actions/associate_email", self.source)
+        self.assertIn(
+            'url :"https://www.zohoapis.com/crm/v8/Contacts/" + safe_contact_id + "/actions/associate_email"',
+            self.source,
+        )
+        self.assertIn(
+            'url :"https://www.zohoapis.com/crm/v8/Accounts/" + account_id_text + "/actions/associate_email"',
+            self.source,
+        )
+        self.assertIn('result.put("email_associated","yes")', self.source)
+        self.assertIn('result.put("email_associated_account","yes")', self.source)
+        self.assertIn('assoc_message_id = "qts-quote-" + quote_number + "-"', self.source)
+        # Association failures must never abort the filed result.
+        self.assertIn("catch (assoc_contact_error)", self.source)
+        self.assertIn("catch (assoc_account_error)", self.source)
+
+    def test_deal_name_is_updated_to_the_current_quote_number(self):
+        self.assertIn('deal_name_update.put("Deal_Name",deal_label_company + " - " + quote_number)', self.source)
+        self.assertIn('zoho.crm.updateRecord("Deals",safe_deal_id.toLong(),deal_name_update)', self.source)
+        self.assertIn('result.put("deal_renamed","yes")', self.source)
+        self.assertIn("catch (deal_rename_error)", self.source)
+        # Must use the package quote_number, not First_Quote_* (which stays on the Contact).
+        rename_block = self.source[
+            self.source.index("deal_name_update = Map()") : self.source.index("safe_contact_email = ifnull")
+        ]
+        self.assertIn("quote_number", rename_block)
+        self.assertNotIn("First_Quote_Number", rename_block)
 
     def test_email_content_is_static_boilerplate_plus_trusted_scalars_only(self):
         for field in ("AI_Summary", "AI_Rationale", "Raw_Zia_Response"):
@@ -253,7 +311,7 @@ class TestLeadConversionOnQuote(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.source = (SCRIPTS / "qts" / "crm_bridge_on_create.deluge").read_text()
+        cls.source = (SCRIPTS / "qts" / "crm_bridge" / "create_deal.deluge").read_text()
 
     def test_conversion_runs_only_for_a_lead_quote_without_a_contact(self):
         self.assertIn('lead_id_text = ifnull(payload.get("lead_id"),"").toString().trim()', self.source)
@@ -312,10 +370,12 @@ class TestQuoteLoadFromCrm(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.source = (SCRIPTS / "qts" / "crm_bridge_on_create.deluge").read_text()
+        cls.source = (SCRIPTS / "qts" / "crm_bridge" / "get_quote_by_number.deluge").read_text()
+        cls.deploy = (SCRIPTS / "qts" / "crm_bridge" / "DEPLOY.md").read_text()
 
     def test_the_action_is_registered(self):
-        self.assertIn('known_actions.add("get_quote_by_number")', self.source)
+        self.assertIn("get_quote_by_number", self.deploy)
+        self.assertIn("get_quote_by_number.deluge", self.deploy)
 
     def test_the_quote_is_found_by_its_subject_then_fetched_once(self):
         self.assertIn(
@@ -374,13 +434,64 @@ class TestQuoteTemplateV4(unittest.TestCase):
 
     def test_all_scalar_fields_survive_from_v3(self):
         for f in ("quote_number", "quote_date", "valid_till", "contact_name", "company_name",
-                  "sub_total", "discount", "tax", "adjustment", "grand_total"):
+                  "sub_total", "discount", "tax", "adjustment", "grand_total", "payment_terms"):
             self.assertIn(f, self.fields)
 
     def test_the_table_row_uses_complex_field_encoding(self):
         self.assertIn('w:instrText xml:space="preserve"> MERGEFIELD  "line_items.name"', self.xml)
         self.assertIn("DESCRIPTION", self.xml)
 
+
+class TestCrmBridgeSplit(unittest.TestCase):
+    """One Creator workflow per Action_field so no single Deluge function holds
+    the old ~25 external-call statements (dev exhaustion after modest QTS use).
+    """
+
+    ACTIONS = (
+        "search_customers", "search_leads", "get_customer", "get_lead",
+        "create_customer", "search_deals", "get_deal", "create_deal",
+        "get_quote_by_number", "get_quote_lines", "expand_kit", "get_tax",
+        "books_diag",
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bridge_dir = SCRIPTS / "qts" / "crm_bridge"
+        cls.deploy = (cls.bridge_dir / "DEPLOY.md").read_text()
+        cls.monolith = (SCRIPTS / "qts" / "crm_bridge_on_create.deluge").read_text()
+
+    def test_every_action_has_its_own_paste_file(self):
+        for action in self.ACTIONS:
+            path = self.bridge_dir / f"{action}.deluge"
+            self.assertTrue(path.is_file(), action)
+            text = path.read_text()
+            self.assertIn(f'Action_field,"").trim() != "{action}"', text)
+            self.assertIn(action, self.deploy)
+
+    def test_no_action_file_exceeds_eight_external_call_statements(self):
+        import re
+        for action in self.ACTIONS:
+            text = (self.bridge_dir / f"{action}.deluge").read_text()
+            count = len(re.findall(r"zoho\.crm\.|invokeurl", text))
+            self.assertLessEqual(count, 8, f"{action} has {count} external stmts")
+
+    def test_search_customers_is_a_single_or_query(self):
+        text = (self.bridge_dir / "search_customers.deluge").read_text()
+        self.assertEqual(text.count('zoho.crm.searchRecords("Contacts"'), 1)
+        self.assertIn("Email:starts_with:", text)
+        self.assertIn("Last_Name:starts_with:", text)
+
+    def test_the_monolith_is_marked_obsolete_and_has_no_crm_calls(self):
+        self.assertIn("OBSOLETE AS A LIVE PASTE", self.monolith)
+        self.assertNotIn("zoho.crm.searchRecords", self.monolith)
+        self.assertNotIn("zoho.crm.getRecordById", self.monolith)
+        self.assertNotIn("zoho.crm.createRecord", self.monolith)
+        # Comment may mention invokeurl; live integration tasks must not remain.
+        self.assertNotRegex(self.monolith, r"(?m)^(?!//).*invokeurl")
+
+    def test_deploy_doc_tells_blake_to_delete_the_mega_workflow(self):
+        self.assertIn("**Disable** or **delete**", self.deploy)
+        self.assertIn("Do **not** paste", self.deploy)
 
 class TestQuoteMergeSample(unittest.TestCase):
     @classmethod

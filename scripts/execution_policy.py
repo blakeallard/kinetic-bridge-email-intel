@@ -1,7 +1,13 @@
 """BI1-T110 — approved-action execution contract.
 
 This module is the *executable specification* for the separate execution stage that
-turns an approved `AI_Recommendations` CRM record into exactly one Zoho CRM Task.
+finalizes an approved `AI_Recommendations` CRM record after CRM people/company
+records are already in place (matched Contact/Lead/Account, or a Lead created by
+`materialize_pending_lead`).
+
+Bill decision 2026-07-28: Approve must **not** create a CRM Task. The Flow still
+runs materialize → associate_email → execute; this stage only claims the
+recommendation and marks it Executed.
 
 It is deliberately free of network code: all CRM access goes through the `CrmPort`
 protocol, so the full decision path is testable offline. The Deluge deployment
@@ -13,11 +19,9 @@ Security posture
 * The caller supplies only an AI Recommendation record ID. Every value used for a
   decision is refetched from CRM (`CrmPort.get_record`). No incoming action payload
   is trusted.
-* `Raw_Zia_Response` is never parsed, never interpreted, and never reaches the Task
-  payload. Task content is built solely from persisted, trusted scalar fields.
-* The only side effects are: updates to the recommendation record's `Execution_*`
-  fields, and the creation of one Task. No Deal stage change, no Closed Won, no
-  quote, no email.
+* `Raw_Zia_Response` is never parsed and never influences writes.
+* The only side effects are updates to the recommendation record's `Execution_*`
+  fields. No Task, no Event, no Deal stage change, no Closed Won, no quote, no email.
 
 Failure policy — the claim boundary is what matters
 ---------------------------------------------------
@@ -26,31 +30,16 @@ had already been claimed when the failure happened.
 
 **Pre-claim failures** (`record_fetch_failed`, `modified_time_unavailable`,
 `blocked_write_failed`, `claim_failed`) happen before the conditional claim succeeds.
-No Task creation was authorized, and the record may still be unclaimed. Once the
-underlying problem is corrected, a fresh invocation is safe: it refetches the record
-and re-evaluates the claim from scratch. Nothing retries automatically — rerunning is
-a deliberate human action.
+The record may still be unclaimed. Once the underlying problem is corrected, a fresh
+invocation is safe.
 
-**Post-claim failures** (`task_create_failed`, `post_execution_write_failed`) happen
-after the claim succeeded. `Execution_Key` stays populated, so `is_already_claimed()`
-treats the record as claimed and a later invocation returns `duplicate` rather than
-retrying. **These are terminal and require human investigation.**
-
-The reason post-claim failures are terminal: a lost or failed Task-creation *response*
-does not prove the Task was not created. Zoho may have committed the Task and failed
-on the way back. A blind retry would then create a second Task against the customer's
-record, which is exactly the outcome this stage exists to prevent. Losing an execution
-is recoverable by a human; silently duplicating customer-facing work is not.
-
-So a post-claim failure requires a human to check whether a Task actually exists
-*before* changing any execution field, then either record it by hand or deliberately
-clear `Execution_Key` and `Execution_Status`. Nothing in this module clears them, and
-nothing moves a `Failed` record back to `Not Started`.
+**Post-claim failures** (`post_execution_write_failed`) happen after the claim
+succeeded. `Execution_Key` stays populated, so `is_already_claimed()` treats the
+record as claimed and a later invocation returns `duplicate`. **Terminal — human
+investigation.**
 
 `Execution_Attempts` records how many times a record was *claimed*. In this version
-that is at most one, because a claimed record is never re-claimed automatically. The
-`MAX_EXECUTION_ATTEMPTS` check is retained as a defensive guard against a future
-retry mechanism or manual reset, not because this version performs three attempts.
+that is at most one, because a claimed record is never re-claimed automatically.
 
 Field API names below were verified live against the Bevco CRM org on 2026-07-19
 via the Zoho CRM metadata API. See docs/live_module_inspection_2026-07-19.md.
@@ -89,7 +78,6 @@ PRE_CLAIM_FAILURE_REASONS = (
 )
 
 POST_CLAIM_FAILURE_REASONS = (
-    "task_create_failed",
     "post_execution_write_failed",
 )
 
@@ -399,24 +387,18 @@ def execute_approved_recommendation(
     """Execute one approved recommendation. Returns a result map, never raises.
 
     Result `status` is one of:
-      * `executed`  — a Task was created and the record was marked Executed.
-      * `duplicate` — already claimed or already executed; no Task created.
-      * `blocked`   — a policy check failed; no Task created.
-      * `failed`    — a CRM error; no Task confirmed. Whether this is recoverable
-                      depends on where it happened relative to the claim:
+      * `executed`  — claim succeeded; recommendation marked Executed (no Task).
+      * `duplicate` — already claimed or already executed; no write.
+      * `blocked`   — a policy check failed.
+      * `failed`    — a CRM error. Whether this is recoverable depends on where it
+                      happened relative to the claim:
 
                       PRE-CLAIM  (`record_fetch_failed`, `modified_time_unavailable`,
-                      `blocked_write_failed`, `claim_failed`) — no Task creation was
-                      authorized and the record may remain unclaimed. A fresh
-                      invocation is safe once the underlying problem is corrected,
-                      because it refetches and re-evaluates the claim. Nothing
-                      reruns automatically.
+                      `blocked_write_failed`, `claim_failed`) — the record may remain
+                      unclaimed. A fresh invocation is safe once the problem is fixed.
 
-                      POST-CLAIM (`task_create_failed`,
-                      `post_execution_write_failed`) — `Execution_Key` stays
-                      populated and the record must not be retried automatically.
-                      TERMINAL: a human must check whether Zoho created the Task
-                      before changing any execution field.
+                      POST-CLAIM (`post_execution_write_failed`) — `Execution_Key`
+                      stays populated. TERMINAL: human investigation.
 
     See PRE_CLAIM_FAILURE_REASONS / POST_CLAIM_FAILURE_REASONS.
     """
@@ -503,55 +485,12 @@ def execute_approved_recommendation(
     except ExecutionError as exc:
         return _result("failed", reason="claim_failed", error=sanitize_error(str(exc)))
 
-    target_display_name = ""
-    try:
-        target = crm.get_record(
-            text_of(record.get("Target_Module")), text_of(record.get("Target_Record_ID"))
-        )
-        if target:
-            name_field = (
-                "Account_Name"
-                if text_of(record.get("Target_Module")) == "Accounts"
-                else "Full_Name"
-            )
-            target_display_name = text_of(target.get(name_field))
-    except Exception:  # noqa: BLE001
-        target_display_name = ""
-
-    task_payload = build_task_payload(
-        record, record_id, due_date_from(clock), target_display_name
-    )
-    try:
-        created = crm.create_record(TASKS_MODULE_API_NAME, task_payload)
-        task_id = text_of((created or {}).get("id"))
-        if task_id == "":
-            raise ExecutionError("task_create_returned_no_id")
-    except ExecutionError as exc:
-        try:
-            crm.update_record(
-                MODULE_API_NAME,
-                record_id,
-                {
-                    "Execution_Status": "Failed",
-                    "Execution_Error": sanitize_error(str(exc)),
-                },
-            )
-        except ExecutionError:
-            pass
-        return _result(
-            "failed",
-            reason="task_create_failed",
-            record_id=record_id,
-            attempts=attempts,
-            error=sanitize_error(str(exc)),
-        )
-
+    # No CRM Task / Event — people/company records are handled upstream.
     try:
         crm.update_record(
             MODULE_API_NAME,
             record_id,
             {
-                "Executed_Task_ID": task_id,
                 "Executed_At": clock.now_iso(),
                 "Execution_Status": "Executed",
                 "Execution_Error": None,
@@ -562,14 +501,16 @@ def execute_approved_recommendation(
             "failed",
             reason="post_execution_write_failed",
             record_id=record_id,
-            executed_task_id=task_id,
             error=sanitize_error(str(exc)),
         )
 
     return _result(
         "executed",
         record_id=record_id,
-        executed_task_id=task_id,
+        executed_task_id="",
+        task_created="no",
         execution_key=execution_key,
         attempts=attempts,
+        target_module=text_of(record.get("Target_Module")),
+        target_record_id=text_of(record.get("Target_Record_ID")),
     )
