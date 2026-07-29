@@ -118,7 +118,7 @@ class TestGenerateAndFileQuoteDocument(unittest.TestCase):
         cls.source = (SCRIPTS / "generate_and_file_quote_document.deluge").read_text()
 
     def test_merges_against_the_verified_live_template_document(self):
-        self.assertIn('template_document_id = "gx3mq1bd0a0083f0847fe8d6696a136a0b11b"', self.source)
+        self.assertIn('template_document_id = "h5zhu2051759ecefd4148816cf61ad65a9cbc"', self.source)
         self.assertIn('"https://writer.zoho.com/writer/api/v1/documents/" + template_document_id + "/merge"', self.source)
 
     def test_output_is_pdf_via_the_writer_connection(self):

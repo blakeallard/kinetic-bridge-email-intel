@@ -8,7 +8,7 @@ Zoho Task ID: 2543412000001583003
 
 **Last updated:** 2026-07-28
 
-## Built (pending Creator field + Flow map + Writer upload) — Payment Terms Net N (2026-07-28)
+## Built (pending Creator field + Flow paste) — Payment Terms Net N (2026-07-28)
 
 Bryan: one typeable number field for payment days; PDF shows `Payment Terms: Net {N}.`
 
@@ -17,6 +17,9 @@ Bryan: one typeable number field for payment days; PDF shows `Payment Terms: Net
 - `build_quote_merge_payload` new arg `payment_terms_days` → merge field `payment_terms`.
 - Writer v4 template: hardcoded `Payment Terms: Net 30.` replaced with `payment_terms`
   merge field (`artifacts/qts_quote_template_v4.docx`).
+- New Writer upload document id `h5zhu2051759ecefd4148816cf61ad65a9cbc` (was
+  `gx3mq1bd0a0083f0847fe8d6696a136a0b11b`); `generate_and_file_quote_document`
+  `template_document_id` updated in repo.
 - t71 `fn_generate_pdf` reads `Payment_Terms_Days` (falls back to 30).
 
 **Blake deploy:**
@@ -24,8 +27,11 @@ Bryan: one typeable number field for payment days; PDF shows `Payment Terms: Net
    (and expose on `Quote_Request_Report` if needed for load).
 2. Flow `build_quote_merge_payload`: add 6th input → map from trigger
    `Payment_Terms_Days`.
-3. Re-upload Writer template v4 (or paste merge field live to match).
-4. Re-import `~/bevco/qts-quote-builder/dist/qts-quote-builder.zip`.
+3. Confirm Writer upload was **Merge Template** and body uses merge field
+   `payment_terms` (not hardcoded Net 30).
+4. Paste `scripts/generate_and_file_quote_document.deluge` into Flow (new
+   `template_document_id`).
+5. Re-import `~/bevco/qts-quote-builder/dist/qts-quote-builder.zip`.
 
 **Validation:** `python3 -m unittest tests.test_quote_document_artifacts`;
 `node ~/bevco/qts-quote-builder/tests/widget_state_test.js`.
@@ -420,15 +426,17 @@ failed and fell back to the Deal attach. The executor now normalizes via
   **`artifacts/qts_quote_template_v4.docx`** built from v3 by replacing the text block
   with a bordered DESCRIPTION/QTY/UNIT PRICE/TOTAL table whose single data row carries
   `line_items.*` complex-encoded MERGEFIELDs — Writer repeats it per array entry.
-  **VERIFIED LIVE 2026-07-28.** Uploaded as Writer document
+  **VERIFIED LIVE 2026-07-28.** Originally uploaded as Writer document
   `gx3mq1bd0a0083f0847fe8d6696a136a0b11b`; `Get_All_Fields` confirmed the `line_items`
   subform imported with all four fields matching the payload keys; Blake added the static
   DESCRIPTION/QTY/UNIT PRICE/TOTAL header row in Writer and adjusted column widths; two
   test merges with the TEST-QUOTE0002 sample rendered all three products as bordered table
-  rows. `template_document_id` in the executor and the plan doc now point at v4; v3
-  (`17lprde…`) is retired. Formatting/styling notes from Bill/Bryan may follow — cosmetic
-  only. **Deploy step remaining: paste the current executor into the Flow function so live
-  merges use v4.**
+  rows. **2026-07-28 re-upload** (payment_terms merge field): live Generate template id is
+  now `h5zhu2051759ecefd4148816cf61ad65a9cbc`; `template_document_id` in
+  `generate_and_file_quote_document` and the plan doc point at that id; prior v4 id and v3
+  (`17lprde…`) are retired for Generate. Formatting/styling notes from Bill/Bryan may
+  follow — cosmetic only. **Deploy step remaining: paste the current executor into the
+  Flow function so live merges use the new template id.**
 - **Parked as next feature, not a tweak: reply-in-original-thread.** Deluge `sendmail`
   cannot thread; needs the Zoho Mail API from the routed inbox with the original message
   id, which the quote chain does not carry — part of the thread-continuity gap.

@@ -12,7 +12,7 @@ result.put("email_sent","no");
 result.put("email_associated","no");
 result.put("email_associated_account","no");
 result.put("deal_renamed","no");
-template_document_id = "gx3mq1bd0a0083f0847fe8d6696a136a0b11b";
+template_document_id = "h5zhu2051759ecefd4148816cf61ad65a9cbc";
 safe_deal_id = ifnull(deal_id,"").trim();
 if(safe_deal_id == "")
 {

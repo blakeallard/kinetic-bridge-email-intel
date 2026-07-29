@@ -138,8 +138,9 @@ Connections required (create in Flow, no secrets in code):
 
 - `writer_to_flow` — Zoho Writer OAuth connection (created by Blake 2026-07-26); used by
   `invokeUrl` for the merge call against template document
-  `gx3mq1bd0a0083f0847fe8d6696a136a0b11b` (`qts_quote_template_v4`, bordered line-items
-  table, live-verified by test merge 2026-07-28; superseded v3
+  `h5zhu2051759ecefd4148816cf61ad65a9cbc` (`qts_quote_template_v4` re-upload with
+  `payment_terms` merge field, 2026-07-28; prior live id
+  `gx3mq1bd0a0083f0847fe8d6696a136a0b11b`; superseded v3
   `17lprde927fb42bd64ee9b3dce7724fad3909`).
 - `zoho_crm_to_zoho_flow` — already exists; used for `attachFile` / record reads/writes.
 
