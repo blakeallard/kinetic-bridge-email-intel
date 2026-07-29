@@ -19,7 +19,8 @@ Bryan: one typeable number field for payment days; PDF shows `Payment Terms: Net
   merge field (`artifacts/qts_quote_template_v4.docx`).
 - New Writer upload document id `h5zhu2051759ecefd4148816cf61ad65a9cbc` (was
   `gx3mq1bd0a0083f0847fe8d6696a136a0b11b`); `generate_and_file_quote_document`
-  `template_document_id` updated in repo.
+  and `send_quote_for_signature` `template_document_id` updated in repo
+  (CI: sign-workflow parity test failed until both matched).
 - t71 `fn_generate_pdf` reads `Payment_Terms_Days` (falls back to 30).
 
 **Blake deploy:**
@@ -29,11 +30,12 @@ Bryan: one typeable number field for payment days; PDF shows `Payment Terms: Net
    `Payment_Terms_Days`.
 3. Confirm Writer upload was **Merge Template** and body uses merge field
    `payment_terms` (not hardcoded Net 30).
-4. Paste `scripts/generate_and_file_quote_document.deluge` into Flow (new
+4. Paste `scripts/generate_and_file_quote_document.deluge` and
+   `scripts/qts/send_quote_for_signature.deluge` into Flow (new
    `template_document_id`).
 5. Re-import `~/bevco/qts-quote-builder/dist/qts-quote-builder.zip`.
 
-**Validation:** `python3 -m unittest tests.test_quote_document_artifacts`;
+**Validation:** `python3 -m unittest tests.test_quote_document_artifacts tests.test_sign_workflow_artifacts`;
 `node ~/bevco/qts-quote-builder/tests/widget_state_test.js`.
 
 ## Built (pending Flow paste) — Approve skips CRM Task (2026-07-28)

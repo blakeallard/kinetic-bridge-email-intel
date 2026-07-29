@@ -26,7 +26,7 @@ class TestSendQuoteForSignature(unittest.TestCase):
     def test_the_merge_uses_the_same_live_template_as_the_document_executor(self):
         executor = (SCRIPTS / "generate_and_file_quote_document.deluge").read_text()
         for source in (self.source, executor):
-            self.assertIn('template_document_id = "gx3mq1bd0a0083f0847fe8d6696a136a0b11b"', source)
+            self.assertIn('template_document_id = "h5zhu2051759ecefd4148816cf61ad65a9cbc"', source)
 
     def test_the_customer_signs_first_and_signing_is_sequential(self):
         self.assertIn('customer_action.put("signing_order",1)', self.source)
