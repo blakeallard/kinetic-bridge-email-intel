@@ -78,9 +78,3 @@ Details and evidence: [`STATUS.md`](STATUS.md), [`docs/ai-analysis-contract-v1.m
 | `progress-pics/` | Sanitized verification screenshots |
 | `STATUS.md` | Operational current state |
 | `TASK.md` | Original task snapshot (internal) |
-
-## For agents / maintainers
-
-Read `STATUS.md`, `AGENTS.md`, `CLAUDE.md`, and `docs/CURRENT_HANDOFF.md` before changing runtime behavior. Do not modify live CRM/Flow systems unless explicitly approved.
-
-Internal task key: `BI1-T110`. Task metadata and Zoho IDs live in `TASK.md` / `.zoho-project-task.json`—not needed for portfolio review.
