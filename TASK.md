@@ -15,7 +15,7 @@ Zoho Task ID: 2543412000001583003
 - Owner: 923987103
 - Tags: repo-needed
 - Zoho task URL: Not provided
-- Repository URL: https://github.com/blake-bevco-tech/bi1-t110-design-and-implement-ai-email-intelligence-workflow
+- Repository URL: https://github.com/blakeallard/kinetic-bridge-email-intel
 - Generated at: 2026-07-16T01:42:35-07:00
 
 ## Original Zoho Task Scope
