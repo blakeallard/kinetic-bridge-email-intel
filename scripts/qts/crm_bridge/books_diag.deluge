@@ -1,0 +1,66 @@
+if(ifnull(input.Action_field,"").trim() != "books_diag")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		org_resp = invokeurl
+		[
+			url :"https://www.zohoapis.com/books/v3/organizations"
+			type :GET
+			connection:"zoho_books_connection"
+		];
+		orgs = org_resp.get("organizations");
+		org_list = List();
+		if(orgs != null)
+		{
+			for each  org in orgs
+			{
+				om = Map();
+				om.put("organization_id",ifnull(org.get("organization_id"),""));
+				om.put("name",ifnull(org.get("name"),""));
+				om.put("contact_name",ifnull(org.get("contact_name"),""));
+				om.put("country",ifnull(org.get("country_code"),ifnull(org.get("country"),"")));
+				om.put("currency_code",ifnull(org.get("currency_code"),""));
+				om.put("time_zone",ifnull(org.get("time_zone"),""));
+				om.put("is_default_org",ifnull(org.get("is_default_org"),""));
+				om.put("sales_tax_type",ifnull(org.get("sales_tax_type"),""));
+				om.put("tax_group_enabled",ifnull(org.get("tax_group_enabled"),""));
+				om.put("version",ifnull(org.get("version"),""));
+				org_list.add(om);
+			}
+		}
+		out.put("organizations",org_list);
+		first_org_id = "";
+		if(org_list.size() > 0)
+		{
+			first_org_id = org_list.get(0).get("organization_id");
+		}
+		if(first_org_id != "")
+		{
+			taxes_resp = invokeurl
+			[
+				url :"https://www.zohoapis.com/books/v3/settings/taxes?organization_id=" + first_org_id
+				type :GET
+				connection:"zoho_books_connection"
+			];
+			out.put("taxes",ifnull(taxes_resp.get("taxes"),List()));
+			auth_resp = invokeurl
+			[
+				url :"https://www.zohoapis.com/books/v3/settings/taxauthorities?organization_id=" + first_org_id
+				type :GET
+				connection:"zoho_books_connection"
+			];
+			out.put("tax_authorities",ifnull(auth_resp.get("tax_authorities"),List()));
+		}
+		input.Request_Status = "done";
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

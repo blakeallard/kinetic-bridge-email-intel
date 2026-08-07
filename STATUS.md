@@ -6,7 +6,56 @@
 
 Zoho Task ID: 2543412000001583003
 
-**Last updated:** 2026-07-25
+**Last updated:** 2026-07-28
+
+## Built (pending Creator field + Flow paste) — Payment Terms Net N (2026-07-28)
+
+Bryan: one typeable number field for payment days; PDF shows `Payment Terms: Net {N}.`
+
+- QTS widget: `Net [number]` input (`#f-payment-days`), default **30**, saves
+  `Payment_Terms_Days` on `Quote_Request`.
+- `build_quote_merge_payload` new arg `payment_terms_days` → merge field `payment_terms`.
+- Writer v4 template: hardcoded `Payment Terms: Net 30.` replaced with `payment_terms`
+  merge field (`artifacts/qts_quote_template_v4.docx`).
+- New Writer upload document id `h5zhu2051759ecefd4148816cf61ad65a9cbc` (was
+  `gx3mq1bd0a0083f0847fe8d6696a136a0b11b`); `generate_and_file_quote_document`
+  and `send_quote_for_signature` `template_document_id` updated in repo
+  (CI: sign-workflow parity test failed until both matched).
+- t71 `fn_generate_pdf` reads `Payment_Terms_Days` (falls back to 30).
+
+**Blake deploy:**
+1. Creator QTS: add Number field **`Payment_Terms_Days`** on form `Quote_Request`
+   (and expose on `Quote_Request_Report` if needed for load).
+2. Flow `build_quote_merge_payload`: add 6th input → map from trigger
+   `Payment_Terms_Days`.
+3. Confirm Writer upload was **Merge Template** and body uses merge field
+   `payment_terms` (not hardcoded Net 30).
+4. Paste `scripts/generate_and_file_quote_document.deluge` and
+   `scripts/qts/send_quote_for_signature.deluge` into Flow (new
+   `template_document_id`).
+5. Re-import `~/bevco/qts-quote-builder/dist/qts-quote-builder.zip`.
+
+**Validation:** `python3 -m unittest tests.test_quote_document_artifacts tests.test_sign_workflow_artifacts`;
+`node ~/bevco/qts-quote-builder/tests/widget_state_test.js`.
+
+## Built (pending Flow paste) — Approve skips CRM Task (2026-07-28)
+
+Bill: Approve should create CRM people/company records as today
+(`materialize_pending_lead` + `associate_email`) and **bypass Task creation**.
+
+- `scripts/execute_approved_recommendation.deluge` — after conditional claim, writes
+  `Execution_Status=Executed` only; `task_created=no`, blank `executed_task_id`; no
+  `createRecord("Tasks")` / Events.
+- `scripts/execution_policy.py` — same contract; post-claim failures are only
+  `post_execution_write_failed`.
+- Tests + docs updated for the no-Task path.
+
+**Blake deploy:** paste `execute_approved_recommendation` into Flow. Retest Approve on a
+pending unmatched sender: Lead/Contact/Account as before, **no new CRM Task**,
+recommendation `Executed`.
+
+**Validation:** `python3 -m unittest tests.test_execution_policy tests.test_deluge_parity`
+(100 OK).
 
 Canonical current-state file:
 
@@ -17,6 +66,721 @@ Current source of truth:
 - This GitHub repo is the source of truth for task documentation, implementation notes, scripts, and approved artifacts.
 - Zoho Projects is the source of truth for intake status unless explicitly documented otherwise.
 - Do not modify Zoho runtime systems, Creator, CRM, Books, Flow, Sheet, or WorkDrive unless explicitly approved.
+
+## Fixed (pending live paste) — QTS TOTAL `$null` + double email (2026-07-28)
+
+Three defects from the TEST-QUOTE0006 / Writer v4 live path:
+
+1. **Writer TOTAL showed `$null`.** A bad rename put `line_items.total` into the
+   internal money map while getters still used `line_money.get("total")` → string
+   concat printed the literal `$null`. Restored short internal keys (`list_price` /
+   `total`); Writer keys stay on the row as `line_items.name` / `qty` / `unit_price` /
+   `total`.
+2. **Blank CRM `Total`.** When `Associated_Products.Total` is 0/blank, compute
+   `qty × List_Price` before formatting; subtotal uses the hardened amount.
+3. **Double client email from one Generate click.** Widget Generate cancels pending
+   autosave and, for a saved record, does **one** `Status → Package Requested` write
+   (never Draft save + Status in the same click). A second deliberate click is a
+   **resend** and is allowed. Autosave/markDirty/saveDraft stay inert after Package
+   Requested / Send for Signature / Signed so a late Draft write cannot race the
+   same click.
+
+**Files:** `scripts/build_quote_merge_payload.deluge` (this repo);
+`~/bevco/qts-quote-builder/app/widget.js` + `dist/qts-quote-builder.zip`.
+
+**Blake deploy:** paste `build_quote_merge_payload` into the Flow function; re-import
+`dist/qts-quote-builder.zip` into the QTS Creator widget. Retest TEST-QUOTE0006 (or a
+fresh draft): one email per click, TOTAL column filled; second Generate click resends.
+
+**Live verified 2026-07-28:** TEST-QUOTE0006 Writer PDF shows filled TOTAL column
+(e.g. `$1,896.55`) — `$null` gone.
+
+**Validation:** `python3 -m unittest tests.test_quote_document_artifacts` (63 OK);
+`node ~/bevco/qts-quote-builder/tests/widget_state_test.js` (ALL TESTS PASS).
+
+## Built (pending Flow paste) — quote email HTML + CRM activity + Deal rename (2026-07-28)
+
+In `scripts/generate_and_file_quote_document.deluge`:
+
+1. **Email body** uses HTML `<br>` paragraphs (plain `\n` collapsed to one line in Proton).
+2. **After successful sendmail**, best-effort `associate_email` to Contact and Account
+   (`sent: true`, `mail_format: html`, unique `qts-quote-<number>-<timestamp>` message id).
+   Failures never abort the filed result; result carries `email_associated` /
+   `email_associated_account`.
+3. **Deal_Name** updated to `{company} - {current quote_number}` so the QTS chip matches
+   the package (fixes `…-TEST-QUOTE0005` while generating 0006).
+
+**Blake deploy:** paste `generate_and_file_quote_document` into Flow. Retest Generate on
+TEST-QUOTE0006: multi-line email, Contact Emails shows outbound, Deal name ends in 0006.
+
+## Built (pending Creator deploy) — CRM_Bridge split per action (2026-07-28)
+
+Creator **dev** was dying with `Total number of External Call Statements exceeded` after
+modest QTS testing (~20 lookups). Root cause: one mega on-create workflow held **~25**
+`zoho.crm` / `invokeurl` statements. Fix: **one workflow per `Action_field`**.
+
+- Source: `scripts/qts/crm_bridge/<action>.deluge` (13 actions; max **5** external stmts
+  in any one file — `create_deal`).
+- Deploy steps: `scripts/qts/crm_bridge/DEPLOY.md` — disable/delete the old mega
+  workflow, create 13 Created-workflows with `Action_field == "<action>"`, paste each
+  file. Widget unchanged (no zip re-import).
+- Monolith `scripts/qts/crm_bridge_on_create.deluge` is now a pointer only — do not paste.
+
+**Validation:** `python3 -m unittest tests.test_quote_document_artifacts` (includes
+`TestCrmBridgeSplit`).
+
+## Built (repo, 2026-07-28): Zoho Sign end-to-end + WorkDrive filing
+
+The missing middle of the Send-for-Signature leg plus automatic signed-document filing.
+Design + wiring in `docs/sign_workdrive_plan.md`; 26 pins in
+`tests/test_sign_workflow_artifacts.py` (395 total, ruff clean). Three functions:
+
+- `scripts/qts/send_quote_for_signature.deluge` — Status = "Send for Signature" →
+  Writer merge (same v4 template as the executor, pinned) → Sign request (customer
+  signs first, sequential) → `Sign_Request_ID` writeback (the widget's existing poll
+  goes green) → quote PDF filed to WorkDrive `Quotes/` best-effort. Re-click with a
+  non-blank `Sign_Request_ID` is a no-op before any external call.
+- `scripts/ensure_workdrive_folder_path.deluge` — idempotent
+  `Accounts/<Acct>/Deals/<date Deal>/{Quotes,Signed,Correspondence,Attachments}`;
+  Creator `WorkDrive_Folder_Map` consulted first (map hit touches nothing);
+  create-only, pinned. Root folder id is a Flow parameter, not code.
+- `scripts/qts/handle_sign_completion.deluge` — Sign completion webhook → gate on
+  `completed` → CRM Quote by Subject → idempotency marker in Description → signed PDF
+  → `Signed/` + Quote attachment → Creator Status = `Signed` via the Description
+  back-reference → Cliq. Duplicate webhook events no-op.
+
+`generate_and_file_quote_document` stays byte-untouched (pinned: no Sign/WorkDrive
+references). Evidence-based call: the Creator `fn_generate_pdf` middle referenced in
+widget comments never ran live (no Sign request has ever existed) — built fresh.
+
+**Not deployed.** Blake's checklist in `docs/sign_workdrive_plan.md` §Blake config:
+mapping-table form + `Sign_Request_ID` field + `Signed` status (Creator), three new
+Flow connections, the two Flow branches, Sign webhook registration (capture one real
+payload log-only first), Bill's Tier sign-off on create-only folder writes.
+
+**Built (2026-07-28 afternoon): Command Center CRM widget** — Blake's verdict on the
+native Home builder was that card grids can't express the owner view he wants, so the
+real dashboard is now a custom CRM widget (`~/bevco/command-center-widget/`, same pattern
+as the QTS widget): read-only one-pager — approval queue + due tasks on top, lifecycle
+row (new inquiries → quotes → deals funnel), automation health + launchers below — and
+**every row deep-links** to the real CRM record / Mail / QTS. No writes. Vendored CRM
+embedded-app SDK, headless tests ALL PASS, `dist/command-center.zip` ready. Install:
+Setup → Developer Space → Widgets → upload zip, then place via the Home builder's
+Widgets tab on the `Command Center (dev)` layout (Blake-only until the demo). The four
+AI_Recommendations custom views built earlier today (Approval Queue / Blocked-Failed /
+Recently Executed / Fallback Review, shared Only-me) remain useful in-module.
+
+Also today: Command Center dashboard mockup published as an artifact for the Bill/Bryan
+meeting (superseded by the real widget above); `docs/crm_home_page_plan.md` refreshed (D1 closed — CRM Deals is the pipeline
+of record); `docs/command_center_build_checklist.md` (dev-only layout, nobody's homepage
+touched); `docs/teaminbox_retirement_assessment.md` (verdict: migrate later, one-adapter
+blast radius).
+
+## PROJECT COMPLETION — where BI1-T110 actually stands (2026-07-26)
+
+Scope anchor is `TASK.md`: TeamInbox → Flow triage → CRM context → Zia → `AI_Recommendations`
+approval gate → Flow execution → **CRM / Meeting / WorkDrive / QTS tasks / Projects**.
+
+### Ingestion → approved CRM Task (the core loop)
+
+| # | Part | % | Missing |
+| --- | --- | --- | --- |
+| 1 | TeamInbox → Flow ingestion + gating | 95% | form path still uses the legacy fake-email hop |
+| 2 | Dedup / idempotency | 100% | — |
+| 3 | CRM context lookup (matching) | 65% | Account-by-domain dead (`Email_Domain` null on all 80); no ambiguity detection |
+| 4 | Zia analysis + extraction | 95% | no thread context |
+| 5 | Validation + persist | 100% | — |
+| 6 | Approval gate (record + Blueprint) | 90% | module presentation cleanup |
+| 7 | Cliq review notification | 75% | single channel, no category routing, no owner @mention |
+| 8 | Execution → CRM Task | 100% | — |
+
+### Execution targets named in TASK.md
+
+| Target | % | Note |
+| --- | --- | --- |
+| CRM Task | 100% | live, verified |
+| Meeting | 70% | built 2026-07-26, **not deployed or tested** |
+| WorkDrive | 5% | starts as a side effect of the QTS document plan (Merge & Store files the PDF into WorkDrive) |
+| QTS quote | 15% | plan of record written 2026-07-26 (`docs/qts_quote_document_plan.md`); blocked on template merge fields |
+| Projects | 0% | no code, no plan |
+
+### Lifecycle beyond the Lead
+
+| Stage | % | Note |
+| --- | --- | --- |
+| Lead → Convert → Contact / Account / Deal | 20% | native + manual; Lead-only fields destroyed at Convert |
+| `Lifecycle_Stage` advancement | 15% | only `Intake` is ever written; the five later stages are unused |
+| Deal ← quote / products | 0% | `Deals.Associated_Products` subform exists, nothing writes it |
+| `First_Quote_Number` / `First_Quote_Created_At` | 0% | fields exist on Leads **and** Contacts, referenced nowhere in the repo |
+
+### Cross-cutting
+
+| Concern | % |
+| --- | --- |
+| Thread continuity | 0% |
+| Attachments | 0% |
+| Cross-record connectedness | 40% |
+| Reporting / cycle-time metrics | 0% |
+
+**Overall: roughly 55%.** The hard half is done — extraction, the safety model, the approval
+gate, idempotency, and every Model C path live-verified. What remains is mostly deterministic
+integration breadth rather than novel work.
+
+**No cycle-time measurement is possible today.** `First_Quote_Created_At` is exactly the field
+that would give email→quote elapsed time and nothing populates it. Same for every stage after
+Intake: no timestamps, so no funnel and no bottleneck visibility.
+
+### The three items that gate most of the rest
+
+1. **`Email_Domain` backfill** — unblocks Account matching and stops duplicate Accounts at
+   Convert. See "The next real problem" below.
+2. **Thread continuity** — unblocks every middle-stage feature. Replies currently arrive as
+   orphans, and a sender who already has a record takes the matched path where extraction is
+   skipped entirely.
+3. **The scope decision on WorkDrive / QTS / Projects** — three of the five execution targets
+   named in `TASK.md` are at zero. Deal-via-QTS is deferred by decision in
+   `next_enhancement_plan.md`; the other two are simply absent. This decides whether the
+   project is near done or about half done.
+
+## In progress — QTS quote → Writer document → Deal → email (2026-07-26)
+
+**Phase started; plan of record: `docs/qts_quote_document_plan.md`.** App decision made:
+Zoho Writer merge (template `arkte656353cdeff74057a4576834d3eddd1d`, "Kinetic Bridge Quote
+Template"), which also starts the WorkDrive target via Merge & Store. CRM native inventory
+templates rejected — limited layout, no WorkDrive artifact, clunky automation.
+
+**RESOLVED by design revision — see `docs/qts_quote_document_plan.md` §"Design revision".**
+Line items became a single `line_items_block` text field (code-formatted, `\n`-joined; Writer
+renders `\n` as real line breaks — live-verified). Template rebuilt as
+`artifacts/qts_quote_template_v3.docx` (18 fields, complex-field MERGEFIELD encoding, which
+is the encoding Writer's importer actually converts — simple-field encoding gets stripped).
+**TEMPLATE COMPLETE — live-verified 2026-07-26.** v3 uploaded as Writer document
+`17lprde927fb42bd64ee9b3dce7724fad3909` ("qts_quote_template_v3"). Full test merge with the
+TEST-QUOTE0001 data passed: all scalars, all five money fields, and the three-product
+`line_items_block` rendered as numbered entries with Qty × price = total and the vendor
+Note line, inside the boxed LINE ITEMS section. This document id is the merge target for
+the Flow. 316 tests pass, ruff clean.
+
+Writer cleanup candidates (Blake, when convenient): "MCP Merge Probe" template, the old
+"Kinetic Bridge Quote Template" (typed placeholders, never mergeable), the first
+"kinetic_bridge_quote_template" upload (simple-field encoding, fields stripped), and
+"Copy of QTS_Template" (converted merge template with no working fields).
+
+**Historical record of the original blocker (superseded):** a `Merge_Document` test run against
+the template returned the document **unchanged** — the `${...}` placeholders are typed text,
+not merge fields. A second probe proved the API's text-mode template creation has the same
+limit, so typed placeholders can never work; real merge-field objects are required. The
+template also uses different field names than the payload contract (`valid_until`,
+`customer_company`, `part_number`, `wire_charge`/`fx_charge`/`total_revenue`) and renders
+line items as one pipe-separated text line, not a repeatable table row.
+
+**Fix built: `artifacts/kinetic_bridge_quote_template.docx`** — the same content rebuilt
+with genuine Word MERGEFIELD codes named exactly per the contract, line items as a real
+table row with `line_items.*` fields. Writer converts MERGEFIELDs to real merge fields on
+import. Two ways to get it in: Blake drags the .docx into Writer (fastest), or approve a
+public URL host so `Create_Template` URL-import can be run via MCP (both hosting attempts —
+temp file host and a public GitHub repo — were permission-blocked). After import, verify
+with `Get_All_Fields` (must list the contract fields) and a `test_mode` merge. The stray
+"MCP Merge Probe" template created during testing can be trashed.
+
+**Superseded same day by the auto-save redesign — see the QTS widget entry below.** The
+email now fires only on the explicit "Generate quote package" click (each click = a
+deliberate send/resend); autosaves are silent. Historical decision text kept below.
+
+**DECIDED (Blake, 2026-07-27, revised same day): email on every save — creation and
+edits.** The first customer-facing automated send in the system. Set `send_email = true`
+in the Flow. First save → "Your Kinetic Bridge quote"; re-save → "Your updated Kinetic
+Bridge quote", body stating it replaces the previous version. An interim guard suppressed
+the send on `quote_action = "updated"`; Blake reversed it the same day — revisions must
+reach the client too. Accepted consequence: every edit re-save emails, so batch edits
+before saving. 353 tests. (Historical: option B — email on `Quote_Stage` change — was the
+earlier recommendation and remains available as a future explicit-resend path.)
+
+**Built (repo, 2026-07-26):** `scripts/build_quote_merge_payload.deluge` — Quote + line
+items → merge JSON matching `samples/quote_merge_sample.json` key-for-key (pinned by a
+contract test that parses the sample and asserts every key is written). Drops zero-qty
+lines (the test quote carries two optional $0 rows that must not print), code-side
+two-decimal money formatting, billing address falls back to the Contact mailing address,
+never reads model-authored fields. Terminal reasons: `quote_id_missing`, `quote_not_found`,
+`no_line_items`. 315 tests pass, ruff clean.
+
+**Built (repo, 2026-07-26 late): `scripts/generate_and_file_quote_document.deluge`** — the
+executor for the whole chain: Writer merge (PDF, against the verified live template doc) →
+attach to Quote (terminal on failure) → attach to Deal (best-effort) → stamp
+`First_Quote_Number` / `First_Quote_Created_At` on the Contact only-if-blank (first
+cycle-time datapoint in the system) → optional templated email to the client, gated on a
+`send_email` Flow parameter (ships `false`; flipping it is a Flow config change, not code).
+`build_quote_merge_payload` now also publishes `contact_id`. Flow wiring table + required
+connections (`zoho_writer` is new) in `docs/qts_quote_document_plan.md`. 324 tests, ruff clean.
+
+**Design corrected during live wiring (2026-07-26):** the first attempt triggered on CRM
+`Quotes` created — and a live QTS draft-save proved **QTS never creates a CRM Quote**; it
+creates a Deal (+ `Associated_Products`) and a Creator `Quote_Request` record. Both
+functions were reworked: the trigger is Creator `Quote_Request` created, quote identity
+(number/dates) comes from the trigger, line items come from the Deal's subform (no part
+numbers there — name/qty/prices only), totals from the Deal `Amount` with a line-sum
+fallback, and the PDF attaches to the **Deal** (terminal on failure). Discovered while
+verifying: QTS populates `Deals.Associated_Products` — the "Deal ← quote / products" row
+in the completion map is no longer 0%. Flow connections confirmed live: `writer_to_flow`
+(Writer), `zoho_crm_to_zoho_flow` (CRM). One live fix already found by the Flow editor:
+`zoho.crm.attachFile` takes 4 args, not 5. 325 tests, ruff clean.
+
+**Live wiring in progress (Blake, guided):** the Flow "QTS Saved Draft To Writer" exists
+and is Live (trigger → `build_quote_merge_payload` → `generate_and_file_quote_document`,
+confirmed by screenshot 2026-07-27). Remaining: set the trigger to **created or updated**,
+confirm the input mappings, then draft-save a fresh QTS quote. TEST-QUOTE0002 no longer
+exists — the `Quote_Request` report is empty in both dev and stage (verified via Creator
+MCP 2026-07-27), so the first save will be a create either way.
+
+**Built (repo, 2026-07-27): quote regeneration on edit.** Blake found during live testing
+that the pipeline was create-only: editing a quote never re-fired the Flow, and a deleted
+`Quote_Request` record orphaned its CRM Quote with no way to load it back into QTS. Fix,
+per the constraint "limit Creator dev APIs as much as humanly possible": the trigger
+becomes **record created or updated** (Flow config, no new function), and
+`generate_and_file_quote_document` dedups on the CRM side — one `searchRecords` on
+`Quotes` by Subject (`Kinetic Bridge Quote <number>`); found → `updateRecord` refreshes
+the subform/`Valid_Till` in place, not found → the original create path. New result key
+`quote_action` (`created`/`updated`/empty). Zero Creator API calls added — pinned by test
+(`zoho.creator` never appears in the executor). Failed search degrades to create, failed
+update to the Deal-attach fallback; old PDFs are never deleted (Tier 3). Rationale in
+`docs/qts_quote_document_plan.md` §"Regeneration on edit". 344 tests, ruff clean.
+
+**Built (repo, 2026-07-27): quoting a Lead converts it.** Decision (Blake, 2026-07-27): a
+QTS quote made from a CRM Lead auto-converts it — Account if there isn't one, Contact if
+there isn't one, and the Deal. This evolves the locked "a human presses Convert" rule
+without breaking its spirit: building a quote for someone *is* the human deciding the Lead
+is real; the AI still never converts anything. Implementation in
+`scripts/qts/crm_bridge_on_create.deluge` `create_deal`: when `Payload_JSON` carries
+`lead_id` and no `contact_id`, the bridge refetches the Lead, reuses an existing Contact
+by email (and that Contact's Account), else an existing Account by company name, then
+calls `zoho.crm.convertLead` with the Deal in the same call (`Deal_Name`, Stage
+`Proposal/Price Quote`, +30d close). Already-converted Leads (`$converted`) skip the
+convert and fall through to the plain Deal create with the resolved ids. Cost: ~4 external
+calls, only on the lead-quote path. Result gains `lead_converted`, `contact_id`,
+`account_id`. Pinned by `TestLeadConversionOnQuote`. 351 tests, ruff clean.
+
+**Deploy-time verification for the convert path:** (1) ~~`zoho.crm.convertLead` argument
+count~~ — **caught live 2026-07-27**, exactly the `attachFile` 4-vs-5 class: Creator takes
+2 args, lead id + one values map (`overwrite` / `Accounts` / `Contacts` / `Deals` inside
+the map). Rewritten and repinned; (2) response key casing (`Deals`/`Contacts`/`Accounts`
+assumed); (3) **QTS front-end must send `lead_id` in the `create_deal` payload** when the
+quote was built from a Lead — that is a QTS app change, not visible from this repo.
+
+**Built (2026-07-27 late): QTS widget UX redesign — auto-save, deal-click loading, real
+Generate button.** Blake: sales must never manually save; quote loading must not require
+typing a number. Changes live in `~/bevco/qts-quote-builder/app/` (widget.js/html/css,
+dist zip rebuilt, its own headless tests ALL PASS):
+
+- **Auto-save:** every mutation (lines, qty, price, dates, currency, discount, customer,
+  deal) marks dirty; a debounced (2.5s) silent save creates/updates the `Quote_Request`
+  record. Save-draft button removed; an `Auto-save on` status line replaces it. Autosaves
+  always write `Status = Draft`.
+- **Deal-click quote loading:** selecting a Deal that has a saved quote auto-loads it via
+  a Creator-native `CRM_Deal_ID` lookup — zero external CRM calls, no typing. Skipped if
+  the form already holds work (never clobbers).
+- **Generate quote package is now the real action** (was a preview-only toast): auto-saves
+  if needed, then sets `Status = "Package Requested"` on the record. The document Flow
+  must gate on that status — decision block `Status == "Package Requested"` — so
+  autosaves never generate documents or email clients. Each click is a deliberate
+  send/resend.
+
+**Blake's Creator/Flow config for this:** (1) add `Package Requested` to the Quote_Request
+Status dropdown (Creator dev, QTS); (2) add the Flow decision block on Status; keep
+`send_email = true` on the executor input. Widget re-import: `dist/qts-quote-builder.zip`.
+
+**Heads-up from Bill (Cliq, 2026-07-27) — Deal pipeline restructure incoming.** Bill is
+actively reworking the Deal tool into three pipelines: **Services** (Qualification, Needs
+Analysis, Proposal/Price Quote, Negotiation/Review, Closed Won, Closed Lost, Parking
+Lot), **BMS Distribution** (Qualification, Proposal/Price Quote, Order to AcmeBMS, Order
+Confirmation, Closed Won (Delivered), Closed Lost), **Cell/Battery Distribution** (same
+as BMS but Order to Partner). Impact on this project: the QTS bridge and conversion
+hardcode Stage `Proposal/Price Quote`, which survives in **all three** lists, so nothing
+breaks — but stage-id constants in CLAUDE.md's pipeline table will go stale, QTS deals
+may need a Pipeline choice at create time once multiple pipelines exist, and the
+"Closed Won"-style terminal-stage checks in `search_deals`' `closed_stages` list must
+gain `Closed Won (Delivered)` and `Parking Lot` (is Parking Lot terminal? Bill to say).
+Bill owns the change; revisit when he ships it.
+
+**PASSED LIVE 2026-07-27 evening — Test A end-to-end.** TEST-QUOTE0005 from a brand-new
+Lead: conversion created Account/Contact/Deal (no duplicates), auto-save worked (R1…R4),
+Generate set `Package Requested`, the Flow's decision matched, Writer produced the PDF,
+and the client email arrived with the PDF attached. `First_Quote_Number` /
+`First_Quote_Created_At` stamped on the Contact — the first live cycle-time datapoint.
+Two defects found and fixed in the same pass: (1) a `line` variable collision between
+`get_quote_by_number` and the pre-existing `get_quote_lines` loop broke every save
+("Error at line 229") — renamed `qline`; (2) **no CRM Quote record was created** because
+Creator sends `Valid_Until` as `26-Aug-2026` and CRM requires `yyyy-MM-dd` — the create
+failed and fell back to the Deal attach. The executor now normalizes via
+`toDate().toString("yyyy-MM-dd")`.
+
+**Built (2026-07-27 evening, Blake's live-test feedback):**
+
+- **Email sends from the Deal owner** (`Owner.email` from the deal refetch), not the Flow
+  connection user (was Bill). Zoho-rejected sender degrades to the connection user via a
+  second `sendmail` in the catch; result carries `email_from`.
+- **CC** on every quote email: new `cc_email` function input (map ← trigger `KB_Email`),
+  defaulting to `info@kinetic-bridge.com` — the originally-contacted inbox stays in the
+  loop.
+- **Thousands separators** in all money strings (`28,735.63`) — bounded 4-pass grouping
+  loop in `build_quote_merge_payload` (Deluge has no while), applied to line and total
+  amounts; sample contract updated.
+- **`line_items` array** published alongside `line_items_block`, and
+  **`artifacts/qts_quote_template_v4.docx`** built from v3 by replacing the text block
+  with a bordered DESCRIPTION/QTY/UNIT PRICE/TOTAL table whose single data row carries
+  `line_items.*` complex-encoded MERGEFIELDs — Writer repeats it per array entry.
+  **VERIFIED LIVE 2026-07-28.** Originally uploaded as Writer document
+  `gx3mq1bd0a0083f0847fe8d6696a136a0b11b`; `Get_All_Fields` confirmed the `line_items`
+  subform imported with all four fields matching the payload keys; Blake added the static
+  DESCRIPTION/QTY/UNIT PRICE/TOTAL header row in Writer and adjusted column widths; two
+  test merges with the TEST-QUOTE0002 sample rendered all three products as bordered table
+  rows. **2026-07-28 re-upload** (payment_terms merge field): live Generate template id is
+  now `h5zhu2051759ecefd4148816cf61ad65a9cbc`; `template_document_id` in
+  `generate_and_file_quote_document` and the plan doc point at that id; prior v4 id and v3
+  (`17lprde…`) are retired for Generate. Formatting/styling notes from Bill/Bryan may
+  follow — cosmetic only. **Deploy step remaining: paste the current executor into the
+  Flow function so live merges use the new template id.**
+- **Parked as next feature, not a tweak: reply-in-original-thread.** Deluge `sendmail`
+  cannot thread; needs the Zoho Mail API from the routed inbox with the original message
+  id, which the quote chain does not carry — part of the thread-continuity gap.
+
+369 tests, ruff clean.
+
+**VERIFIED LIVE 2026-07-27 — Lead conversion works end-to-end.** Blake quoted a Lead in
+QTS dev; the saved `Quote_Request` TEST-QUOTE0004 carries `CRM_Lead_ID = …3689001` plus
+freshly created consecutive `CRM_Account_ID` / `CRM_Contact_ID` / `CRM_Deal_ID`
+(…3696001/2/3) — the bridge converted Lead → Account + Contact + Deal in one save. The
+document Flow did **not** run on that save (no CRM Quote created) — Flow-side deploy
+steps were still pending at the time.
+
+**Built (repo, 2026-07-27): LOAD QUOTE reads CRM, not Creator.** Decision (Blake): the CRM
+Quote is the durable record and Creator references hang off it — a deleted `Quote_Request`
+must never orphan a quote again. Two pieces: (1) new CRM_Bridge action
+`get_quote_by_number` — searches `Quotes` by Subject, fetches the record once, returns
+header + `Quoted_Items` lines (product ids/names, qty, prices) + Deal/Contact lookups +
+Description. Cost: 2 CRM calls per load, 0 Creator API calls. (2)
+`generate_and_file_quote_document` gains a `quote_request_id` parameter and stamps
+`QTS Quote_Request ID: <id>` into the Quote's `Description` on create and update — the
+CRM→Creator back-reference without a schema change (a real `Creator_Quote_Request_ID`
+field on Quotes is Tier 3, Bill). QTS front-end must point LOAD QUOTE at the new action
+and map the new Flow input (trigger record ID → `quote_request_id`). Pinned by
+`TestQuoteLoadFromCrm` + `test_the_quote_records_its_creator_request_reference`. 358
+tests, ruff clean.
+
+**Front-end half built (2026-07-28, `~/bevco/qts-quote-builder/app/widget.js`):**
+`loadQuoteByNumber` is now CRM-first — `get_quote_by_number` via the bridge, then the
+`QTS Quote_Request ID:` back-reference in the Quote Description leads to the full-fidelity
+Creator record. Creator record deleted → the form repopulates from the CRM record alone
+(identity stays unsaved, so the next save cuts a fresh draft; status line says
+"Recovered … from CRM"). No CRM Quote yet (draft never generated) or bridge down → the
+legacy Creator report search runs unchanged. Same pass (Blake, 2026-07-28): the Save-draft
+button is removed from both HTML mirrors — auto-save owns persistence, the status line is
+the save-truth surface; `saveDraft()` itself stays (autoSave / generatePackage call it).
+Send for signature stays as a separate control — it starts the Zoho Sign contract flow,
+not a quote resend; whether its Sign leg is live is still unconfirmed. Widget headless
+tests pass; dist zip rebuilt.
+**Blake: re-import `dist/qts-quote-builder.zip` + the `quote_request_id` Flow mapping.**
+
+**Verified live 2026-07-27 (read-only):** the CRM_Bridge budget fix IS pasted into
+Creator dev — the newest bridge records write `Request_Status = "error"` with exception
+text (previously died blank), and the failing line numbers (28/630) match
+`scripts/qts/crm_bridge_on_create.deluge` exactly. The remaining errors were yesterday's
+exhausted External Call budget; a fresh-day search on 2026-07-27 resolved Contact + Deal
+successfully in the QTS UI.
+
+## Done — meeting requests pre-fill a CRM Meeting (repo, 2026-07-26)
+
+**Decision (Blake, 2026-07-26): Cliq notifies, CRM is where work happens.** No state is
+duplicated in Cliq, no scheduling UI, no approve/reject from chat — every card is read-only
+context plus a deep link, and the employee's next click is always into CRM. This ruled out a
+dedicated meeting bot and per-module bots (Lead bot / Deal bot / Task bot): modules are where
+data lives, not what people do, and one inquiry creates a Lead *and* a Task *and* later a
+Deal, so splitting by module multiplies notifications instead of reducing them.
+
+**Chain, all live-verified except the last step:**
+
+1. Zia classifies `intent.category` = `Meeting Request` (agent v6 constrains it to six values:
+   Quote Request · Product Inquiry · Meeting Request · Support Request · Partnership · Other).
+2. `AI_Category` persists that scalar — no new CRM field was needed, which matters because a
+   new field is Tier 3 and would have waited on Bill.
+3. The Cliq card gains a **Meeting requested** row. Confirmed live 2026-07-26.
+4. On approval the executor creates a CRM **Event** alongside the Task.
+
+**The Event is pre-filled, but the AI never picks the time.** Zoho Events require a start, so
+the slot is a placeholder at **+2 days, 10:00–10:30** in the org offset, and the Description
+opens with *"Proposed time only - confirm with the customer before sending the invite."*
+followed by the customer's own words carried from `Review_Notes` — on the live test that was
+*"30-minute call next week, Tuesday or Wednesday afternoon"*, which Zia extracted without being
+asked to. Participants carry the sender address; Owner and related record match the Task.
+
+**Safety properties, all pinned by tests:**
+
+- The executor's blast radius is now exactly **two** modules, `Tasks` and `Events`, asserted by
+  equality so a third is a policy decision rather than a refactor. Both are internal activity
+  records: neither notifies the customer, and an Event reaches nobody until a human sends the
+  invite.
+- The Event is created **inside the claimed section and before the Task**, so replay safety
+  comes from the existing `If-Unmodified-Since` claim. There is no `Executed_Event_ID` field
+  and adding one would be Tier 3; the claim already guarantees a second caller reaches neither
+  create.
+- A failed Event create is swallowed and **never blocks the Task**, which is the claimed
+  critical path. A meeting failure must not strand a claimed recommendation.
+
+**Known limit:** participants carry the sender only. The full thread participant set needs
+thread continuity, so a meeting pre-filled from a single message will miss anyone who joined
+the chain earlier.
+
+**Not deployed:** `execute_approved_recommendation`.
+
+## Done — repeat meeting requests update the placeholder Event instead of duplicating (repo, 2026-07-26)
+
+**The problem (Blake, 2026-07-26):** the flow is per-message, so a thread where email #1 asks
+for a call and email #3 confirms it produces two `Meeting Request` recommendations — and two
+Events if both are approved. Nothing linked them.
+
+**The fix stays cheap: Zia remains per-message, the smarts live in the executor.** Before
+creating an Event, the executor fetches the target record's related Events and looks for one
+whose Description contains the placeholder marker sentence — *"Proposed time only - confirm
+with the customer before sending the invite."* — which the executor itself writes into every
+placeholder it creates. The marker is now defined once (`placeholder_marker`) and reused as
+both the Description opener and the dedup fingerprint, so they cannot drift.
+
+- **Found:** the existing Event's Description gains the new customer preference under a
+  *"Follow-up from a later email in this thread:"* line. Nothing else is touched — pinned by
+  test: no `Start_DateTime`, `End_DateTime`, `Owner`, `Participants`, `Event_Title`, `Who_Id`
+  or `What_Id` in the update map. A later email must never silently reschedule a meeting a
+  human may have already confirmed.
+- **Not found, or lookup fails:** the old create path runs unchanged. Dedup is best-effort;
+  the worst case is the previous behavior (a duplicate), never a lost meeting or a blocked
+  Task.
+- The result map now carries `event_action` (`created` / `updated` / empty).
+
+**Blast-radius change:** the update allowlist grew from `{AI_Recommendations}` to
+`{AI_Recommendations, Events}`, asserted by equality in `test_deluge_parity.py` as before.
+The create allowlist is unchanged.
+
+**Deploy-time verification needed:** `zoho.crm.getRelatedRecords("Events", <module>, <id>)`
+must be confirmed live for Leads, Contacts and Accounts — the related-list API name is
+assumed to be `Events` on all three. If it differs, the lookup throws, the catch swallows
+it, and behavior degrades to create-always (visible as `event_action = "created"` on what
+should have been an update).
+
+**Not deployed** — ships with `execute_approved_recommendation`. 333 tests green.
+
+## Done — the quote PDF files onto a real CRM Quote record, not the Deal's attachments (repo, 2026-07-26)
+
+**Decision (Blake, 2026-07-26): the Deal's Quotes related list is where our quotes live;
+Deal Attachments is reserved for files the client or sender includes in an email.** The
+Quotes related list can only show Quote *records*, and nothing in the pipeline created one —
+QTS draft-saves onto the Deal only (`create_deal`, no quote action in its CRM_Bridge log).
+
+`generate_and_file_quote_document` now, after a successful Writer merge:
+
+1. Rebuilds line items from the Deal's `Associated_Products` (zero-quantity lines dropped,
+   Product lookup carried as an `{"id": ...}` object — same jsonobject rule as Who_Id/What_Id,
+   see the 2026-07-25 lookup-structure finding).
+2. Creates a `Quotes` record — Subject `Kinetic Bridge Quote <number>`, `Deal_Name` and
+   `Contact_Name` lookups, `Valid_Till` when provided, `Quoted_Items` subform.
+3. Attaches the PDF to that Quote. The Deal → Quotes related list now shows the quote with
+   its PDF on it.
+
+**Fallback, so a quote is never lost:** if the Deal refetch, Quote create, or Quote attach
+fails (each has its own catch), the PDF attaches to the Deal exactly as before, and only a
+failed *Deal* attach is terminal (`deal_attach_failed`). The result map reports where the
+document landed: `attached_to_quote` / `attached_to_deal` / `quote_record_id`.
+
+**Approval tier:** creating `Quotes` records is a core record write — Tier 1 (Blake).
+
+**Deploy-time verification needed:**
+
+- `Quoted_Items` subform field names (`Product_Name`, `Quantity`, `List_Price`) against the
+  live Quotes layout — verified in docs for Tasks/Events, assumed here.
+- `Valid_Till` arrives in `yyyy-MM-dd`; a malformed date fails the create and triggers the
+  Deal fallback (visible as `attached_to_quote = "no"`).
+- Quote Stage default on create (org default applies; no stage is set explicitly).
+
+**Not deployed** — ships with the Quote Document Flow. 338 tests green, ruff clean.
+
+## Fixed (pending live paste) — QTS CRM_Bridge exhausted the external-call budget (2026-07-26)
+
+Draft-save testing in QTS dev failed with `Request_Status=""` on `search_customers` /
+`search_leads` bridge requests. Root cause, proven by adding a try/catch to the bridge
+workflow: **"Total number of External Call Statements exceeded"** at the first
+`zoho.crm.searchRecords`. Each search click fanned out 7–11 CRM calls (3–5 criteria for
+Contacts plus 4–6 for Leads); a day of testing drained the allowance and every CRM call
+died silently — the workflow aborted before writing even the `error` status.
+
+Fix, tracked in this repo at `scripts/qts/crm_bridge_on_create.deluge` (the QTS Creator
+app's CRM_Bridge on-create workflow — deployed by pasting into Creator dev, not by Flow):
+
+- Whole body wrapped in try/catch; failures now write `Request_Status = "error"` and the
+  exception text into `Result_jSON` instead of dying blank.
+- `search_customers` and `search_leads` criteria merged into one OR query per module —
+  a search click now costs 2 CRM calls instead of 7–11.
+
+Two false leads worth remembering: the deploy-packet theory (the forms/workflow existed in
+dev all along) and the auth theory (identical searches succeeded moments before the first
+failure — it was the budget running out mid-session, not a dead connection). Production
+note: the QTS app is dev/stage only, production is unpublished; production quotas are
+higher, and real quoting volume (~5 calls per quote after the fix) is far below any limit.
+
+## Fixed — the Cliq card was a live-only artifact and got overwritten (2026-07-26)
+
+**`notify_cliq_new_recommendation` existed in a richer form in live Zoho than in the repo.**
+The repo held a plain-text `postToChannel` version — its only commit — while live ran a
+structured card with a theme, two slides (Recommendation / Review details) and buttons.
+Deploying the repo copy replaced the card with plain text.
+
+This is **repo-behind-live** drift, the opposite direction from the `REPO-AHEAD` markers in
+`zoho_flow_inventory.md`, and nothing in the repo was watching for it. The live source is now
+committed verbatim and tests pin the card/slides/buttons shape so the regression cannot repeat.
+
+Two fixes on top of the recovered version:
+
+- **Meeting guidance row**, described above. The first attempt guarded on having a matched CRM
+  record — but Cliq fires at *ingestion*, where a deferred lead has no `Target_Record_ID` yet,
+  which is the common case for a new inquiry. The guidance was therefore suppressed for exactly
+  the case it was written for. It now degrades to *"Approve first to create the record, then
+  schedule from it."*
+- **`category_labels` rebuilt** for the live Zia vocabulary. The map still held snake_case keys
+  (`request_information`, `quote_request`) from before the agent constrained
+  `intent.category`, so every lookup missed and fell through to the raw string.
+
+**Cosmetic, not fixed:** `Safety review` shows **Insufficient Context** on every deferred lead,
+because the recommended action needs a CRM record that does not exist yet. Correct per the agent
+rules, but it fires on every new inquiry and will read as noise.
+
+**Not deployed:** `notify_cliq_new_recommendation`.
+
+## Open — category routing for Cliq (blocked on an org decision, 2026-07-26)
+
+One channel currently receives every category, which makes it noise and defeats the review gate.
+The routing key already exists and needs no new field: `AI_Category` is a fixed six-value
+vocabulary and `Routed_Mailbox` records which inbox was hit.
+
+Agreed shape: route **channel** on `AI_Category`, and **@mention** on the record owner. Division
+of roles happens through channel membership — a real org chart — not through multiple bots.
+An unmapped category must fall through to a catch-all; a missed routing rule must never mean a
+missed customer.
+
+**Blocked on Blake/Bill/Bryan:** who owns which category. That is an org decision, not a build
+decision, and nothing can be wired until it is answered.
+
+## PASSED — rejection creates nothing (2026-07-25)
+
+**The last unproven claim in Model C, and the entire justification for deferring Lead
+creation until approval.** Never exercised before today.
+
+Recommendation `6719186000003539012`, rejected through Blueprint:
+
+| Field | Value | Meaning |
+| --- | --- | --- |
+| `Status` | `Rejected` | |
+| `Target_Record_ID` | **null** | the Lead was deferred and never materialized |
+| `Email` | `blakeallard@blakeallard.com` | populated only on the `pending_lead` path — confirms this was a deferred lead, not a matched record |
+| `Executed_Task_ID` | null | |
+| `Execution_Status` | `Not Started` | the executor never ran |
+
+Verified by COQL after the fact: **no Lead exists for that address, and no Task was created
+in the window.** Under the pre-Model-C behaviour the Lead would have been created the moment
+the email arrived — which is exactly how the three DMARC robots became Leads.
+
+**A first attempt was inconclusive and is worth recording.** Rejecting recommendation
+`6719186000003573011` also created nothing, but its `Target_Record_ID` was already populated
+and its `Email` was null — the *matched* path, where nothing was ever queued to create. The
+Dana Whitfield Lead from the reference result below was still present, so the sender matched
+it at stage 1. The Lead had to be deleted before the deferred path could be reached at all.
+The matched-path rejection is still a real result and was also previously untested.
+
+### Model C coverage after today
+
+| Path | State |
+| --- | --- |
+| Unmatched → approve → Lead + Task + associated email | ✅ live |
+| Unmatched → **reject** → nothing created | ✅ live |
+| Matched → approve → Task on the existing record | ✅ live |
+| Matched → reject → nothing created | ✅ live |
+| Full-fidelity extraction (15 Lead fields) | ✅ live |
+| Automated-sender gate | awaiting a natural robot email |
+
+## REFERENCE RESULT — full-fidelity extraction proven live (2026-07-25)
+
+**Lead `6719186000003626001` ("Dana Whitfield") is the reference result for this
+pipeline.** First run in which an inbound email produced a genuinely actionable CRM record
+rather than a stub. Chain: recommendation `6719186000003552011` → Lead
+`6719186000003626001` → Task `6719186000003548003`, `Execution_Attempts = 1`, no error,
+source email attached.
+
+**15 fields written, all from one email:**
+
+| Field | Value |
+| --- | --- |
+| `First_Name` / `Last_Name` | Dana / Whitfield |
+| `Company` | Northgate Fleet Systems LLC |
+| `Designation` (UI label "Title") | Director of Fleet Engineering |
+| `Phone` | +1 310 555 0142 |
+| `Street` / `City` / `State` / `Zip_Code` / `Country` | 4820 Corbin Avenue / Torrance / CA / 90503 / USA |
+| `Secondary_Email` | d.whitfield@northgatefleet.com |
+| `Website` | northgatefleet.com |
+| `Area_of_Interest` | Battery Management Systems |
+| `Routed_Mailbox` | info@kinetic-bridge.com |
+| `Lifecycle_Stage` | Intake |
+
+**The test email deliberately mismatched envelope and signature** — sent from
+`blakeallard@blakeallard.com` with a Dana Whitfield / Northgate signature. This is the
+realistic case (personal addresses, assistants sending on behalf, forwarded intros), and
+Blake's instruction on 2026-07-25 was explicit: **do not reshape the test to fit the
+system.** Two properties fall out of it:
+
+- `Company` = `Northgate Fleet Systems LLC` and `Website` = `northgatefleet.com`, i.e. the
+  **stated** values, not `Blakeallard` / `blakeallard.com`. The "never guess from the
+  domain" instruction holds under direct temptation.
+- `First_Name` = `Dana`, with `fallback_first_name` = `Blake` carried but unused — the
+  precedence fix below, working.
+
+**Zia parsed a mangled signature.** The mail client reflowed the block on send, merging the
+name and company lines into `Dana Whitfield     Northgate Fleet Systems LLC\r<br> |
+Director of Fleet Engineering`. All 13 extracted fields were still correct.
+
+### Three root causes fixed to get here
+
+1. **Under-specified schema (mine).** The `contact` object had three keys, and FINAL
+   VALIDATION rule 7 forbids keys outside the contract — so the agent was *instructed* to
+   discard the phone, title and address it had already read. Expanded to 13 fields.
+2. **Wrong precedence (`ensure_crm_match`).** The envelope display name was written before
+   the overlay ran, and the overlay only fills blanks, so a mail-client string permanently
+   outranked the person's own signature. A signature reading "Dana Whitfield" lost to a
+   TeamInbox `senderName` of "Blake". Display-name derivation now parks under
+   `fallback_first_name` / `fallback_last_name` for **email** intake; **form** intake keeps
+   it authoritative, because there it is a structured field.
+3. **Wrong API name.** The Lead field labelled "Title" in the UI is `Designation`. Writing
+   `Title` fails silently. Confirmed by live `getFields`, pinned by test.
+
+**Not a model-capability problem.** The one rule written precisely — never infer the
+company from the domain — was obeyed against an easier wrong answer sitting in the From
+header. The agent was under-instructed, not over-asked.
+
+### Also landed in this pass
+
+- **Task subject names the person.** Was `Follow up: Inquiry - blakeallard@blakeallard.com`;
+  now resolves the target record's `Full_Name` (`Account_Name` for Accounts) and reads
+  `Follow up: Inquiry - Dana Whitfield`. The lookup is a CRM read, not model output, so the
+  trusted-scalars rule is intact; it runs **after** the claim so a caller that loses the
+  race never spends the call; and any failure degrades to the sender address rather than
+  aborting. `execution_policy.py` kept in parity via a `target_display_name` argument.
+- **Lead `Description` now prefers `AI_Summary`** over `pending_message.summary`, which is
+  TeamInbox's ~100-character preview and produced Descriptions cut mid-word. **Policy note:**
+  this deliberately admits model-authored prose into a Lead field. It is display text, never
+  an instruction surface, and the executor's stricter rule — never reading `AI_Summary` for
+  Task content — is unchanged and still pinned.
+- Company cap corrected 100 → **200**, the live field length.
+
+**Validation.** 295 tests pass, ruff clean.
+
+**Deliberately not done:** `Lead_Source` stays hardcoded `Email` even when the body says
+"referred to you by a colleague". Blake, 2026-07-25: not important at this stage.
+
+**Deploy set:** `ensure_crm_match`, `validate_zia_analysis_response_tagged`,
+`materialize_pending_lead`, `execute_approved_recommendation`, plus Zia agent version 5.
 
 ## Live defect found and fixed — approval Flow crashed on a matched recommendation (2026-07-25)
 
@@ -366,24 +1130,43 @@ body; confirm the next DMARC report stops at the Processing Gate with
 `skip_reason = "automated_sender"` and produces no recommendation or Cliq card; then send
 one ordinary external inquiry and confirm it still passes (the over-matching check).
 
-**Existing junk not cleaned up.** The three Leads above and their `AI_Recommendations`
-records remain in CRM. Record deletion is Tier 3 (Bill only), so they were left alone —
-either flag them to Bill or set `Lead_Status = Junk Lead`, which Blake can do directly.
+**Existing junk — resolved 2026-07-25.** All three Leads and their `AI_Recommendations`
+records are gone; COQL on their exact ids returns empty, as does any `Email like '%dmarc%'`
+search. They were swept up in Blake's own between-run cleanup rather than deleted
+deliberately, so no Tier 3 escalation was needed. The Leads module now holds **7 records,
+all legitimate** (Voltify, thelithium.com, Network Environments, and four Apr-2025 referral
+Leads). No DMARC Lead has appeared since the gate deployed — weak positive evidence, not
+proof, since it is not visible from CRM whether a report actually arrived in that window.
+
+Cosmetic residue: Lead `6719186000003484001` carries `Company = "thelithium.com"`, the
+pre-extraction email-domain fallback. Only fixable by hand — the matched path never updates
+an existing record (see the extraction gap entry above).
 
 ## NEXT SESSION — START HERE (2026-07-25)
 
 ### Where the project actually is
 
-The unmatched-sender path is **live and working end to end**, verified today on real
-records: an inbound email creates a `Pending Review` recommendation → approval creates the
-Lead → the executor creates a Task linked to it → the source email is associated to the
-Lead. Live proof: recommendation `6719186000003561012`, Lead `6719186000003602002`, Task
-`6719186000003583003`, Task owner Blake, due Jul 27, email "TEST" in the Lead's Emails
-related list.
+**The email→CRM slice of BI1-T110 is functionally complete and live-verified on every
+path.** Approve creates a fully populated Lead + a named, dated, correctly-owned Task with
+the source email attached; reject creates nothing. Extraction pulls 15 fields from one
+email including title, phone and full postal address. See the two entries at the top of this
+file for the proof records.
+
+**What that does *not* mean.** `TASK.md` scopes execution into **CRM / Meeting / WorkDrive /
+QTS tasks / Projects**. Only the CRM Task target is built. Meeting, WorkDrive, QTS quotes and
+Projects have no code, no plan document, and no entry anywhere in this file — they have
+quietly fallen out of the working definition of the task rather than being deferred by
+decision. `next_enhancement_plan.md` defers Deal-via-QTS explicitly; the other three are
+simply absent.
+
+**Open question for Blake:** is T110 complete at CRM Task, or does it still owe the other
+four execution targets? That answer decides whether this project is near done or roughly
+half done, and nothing else in this file resolves it.
 
 ### Deployed to live Zoho (done, working)
 
-- Automated-sender gate (DMARC/no-reply) — awaiting a natural robot email to confirm.
+- Automated-sender gate (DMARC/no-reply) — no junk Lead has appeared since; see the
+  automated-sender entry above.
 - Model C deferred lead: `ensure_crm_match` (read-only), `materialize_pending_lead`,
   `build_crm_context` (+`pending_contact`), tagged validator, `persist_recommendation`.
 - Approval Flow blocks: `materialize_pending_lead` → `associate_email_to_crm_record` →
@@ -392,30 +1175,63 @@ related list.
 - Executor Task fixes: owner = approver, readable subject, +2 day due date.
 - Form body newline fixes.
 
+### Deployed — extraction stack is live
+
+- **Zia agent `28302000000011001` is at version 5, Deployed**, carrying the 13-field
+  `contact` object and the signature-is-authoritative rule. Triggers stay empty by design —
+  Zoho Flow calls the agent through `Trigger agent execution`; a Zia-side trigger would give
+  it a second activation path with no processing gate in front of it.
+- `ensure_crm_match`, `validate_zia_analysis_response_tagged`, `materialize_pending_lead`
+  deployed and live-proven by the reference result at the top of this file.
+
 ### NOT deployed — repo is ahead of live
 
-1. `ensure_crm_match` and `validate_zia_analysis_response_tagged` — contact/company
-   extraction (see the 2026-07-25 extraction entry above).
-2. **Zia agent `28302000000011001`** — must add the `contact` object to its response
-   schema and instructions. **The extraction code is a no-op until this lands**; it will
-   just fall through to the email-domain fallback.
+1. `execute_approved_recommendation` — Task subject names the target record rather than the
+   sender address, **and** a `Meeting Request` now pre-fills a CRM Event.
+2. `notify_cliq_new_recommendation` — the recovered rich card, the meeting-guidance row, and
+   the rebuilt `category_labels` map.
+
+Everything else in the deploy set is live, including Zia agent **version 6** (six-value
+`intent.category` vocabulary plus the 13-field `contact` object).
 
 ### Tests still unrun (Blake)
 
-1. **Rejection test — the last unproven piece of Model C.** Send from an unmatched
-   address, **reject** the recommendation, confirm **no Lead and no Task** were created.
-   This is the entire justification for the deferred-lead design and has never been run.
+1. ~~Rejection test — the last unproven piece of Model C.~~ **PASSED 2026-07-25** — see the
+   entry at the top of this file.
 2. **Website form submission** — end to end. Note the form still goes through the legacy
    `build_form_intake_payload` fake-email hop; `unified_intake_architecture.md` §2 says to
    retire it in favour of `normalize_form_entry`, which is not done.
-3. **Company extraction retest** after the Zia agent change.
+3. ~~Company extraction retest after the Zia agent change.~~ **Done** — see the reference
+   result at the top of this file.
+
+### The next real problem — company identity has no join key
+
+Extraction is now good enough that the bottleneck has moved. A real business email states
+its company **two different ways** — trading name in prose, legal entity in the signature —
+and both are correct. The live proof, 2026-07-25: the Northgate test stated
+`Northgate Fleet Systems` in the body and `Northgate Fleet Systems LLC` in the signature,
+and Zia chose the legal entity. Applied to a real sender this produces a **duplicate
+Account at Convert**, next to the one already in CRM.
+
+The sender is not being vague. A genuine inbound (Bashar Khasawneh, Forward Engineering,
+2026-06-17) supplied `forward-engineering.com` **three times** — From address, signature
+email, signature website — while stating the company as both `Forward Engineering` and
+`Forward Engineering North America LLC`. The domain is the unambiguous key and it cannot
+vary.
+
+We do not use it. `Account.Email_Domain` is **null on all 80 Accounts** (`Website` too —
+confirmed null on Forward Engineering), so `resolve_crm_match` stage 3 never fires. A new
+person at a known company becomes a brand-new Lead, and a company named two ways becomes
+two Accounts.
+
+**This is now the highest-value remaining work, ahead of any further extraction.** Better
+extraction into a system that cannot match does not reduce duplication — it produces
+better-worded duplicates. Blake's approach: backfill `Email_Domain` from existing Contact
+email addresses per Account, which needs no external data and no guessing. Blake declined to
+start it on 2026-07-25; recorded here so the reasoning is not lost.
 
 ### Known open defects / gaps
 
-- **`Email_Domain` is null on all 80 Accounts**, so `resolve_crm_match` stage 3
-  (Account-by-domain) never matches in production. A new person at a known company becomes
-  a brand-new Lead. Highest-value follow-up. Blake's approach: backfill from Zoho Mail
-  correspondence.
 - **Thread preservation is a requirement, not a nice-to-have** (Blake, 2026-07-25) — see
   the Connectedness backlog section. Only the first message of a chain is attached today;
   attachments are not handled at all.
@@ -434,38 +1250,30 @@ related list.
 
 ### Repo state
 
-**273 tests pass, `ruff` clean, working tree clean.** All of 2026-07-25's work is
-committed and pushed to `bi1-t110/model-c-completion-and-task-quality` as six commits, and
-PR #3 shows them as separate stages:
+**295 tests pass, `ruff` clean under both 0.15.22 and 0.16.0, working tree clean.**
 
-| Commit | Change |
-| --- | --- |
-| `769762c` | `refactor(scripts)`: merge `single_path/` into `scripts/` |
-| `5f0135b` | `fix(ingestion)`: stop automated senders creating CRM Leads |
-| `ca7a520` | `fix(form)`: render form body newlines instead of literal `\n` |
-| `2c3ff1c` | `feat(ingestion)`: deferred Lead, email association, contact extraction |
-| `8770526` | `feat(executor)`: assign, name and date the created Task |
-| `8e11ef6` | `docs`: retire superseded docs, split STATUS, add merge checklist |
+- **PR #3 — MERGED** to `main` on 2026-07-26 with `--merge`, preserving nine commits so the
+  history bisects. Delivered Model C completion, the automated-sender gate, the executor
+  Task fixes, and the repo tidy-up.
+- **PR #4 — OPEN** on `bi1-t110/full-fidelity-extraction`, 11/11 checks green. Delivers the
+  13-field signature extraction, the signature-over-envelope precedence fix, the
+  `Designation` API-name correction, the Task subject naming the person, and the
+  `AI_Summary` Description source.
 
-The final tree is byte-identical to the single squashed commit reviewed earlier (tree
-`666c893`) — the split changed history, not content. Each commit was checked out and its
-own suite run: 233 → 238 → 240 → 273 → 273 → 273, all passing, so the history bisects
-cleanly. Pushed with `--force-with-lease`.
+**CI note.** The `python-quality` workflow installs the *latest* ruff rather than a pinned
+version, so an upstream release can turn a green branch red without a code change — that is
+exactly what happened on 2026-07-26 when 0.16.0 broadened the default rule set and surfaced
+7 pre-existing findings. Consider pinning `ruff==` in
+`.github/workflows/python-quality.yml`.
 
-`2c3ff1c` deliberately bundles three changes — Model C deferred leads, email association,
-and contact extraction — because they edit the same four functions and no on-disk snapshot
-of the intermediate Model C state existed to split against. Its commit message states the
-three parts and why.
+**`validate-scaffold` had never passed** before 2026-07-26. `docs/CURRENT_HANDOFF.md` is a
+required lifecycle artifact; it was deleted from `main` on 2026-07-24, and even before that
+it lacked the generator/task/version marker comments the validator greps for. Restored as a
+pointer to this file — its content stays consolidated here by decision.
 
-`scripts/single_path/` was merged into `scripts/`, so every function now lives in one
-directory.
-
-**Merge:** `gh pr merge 3 --squash --delete-branch`. Given the history is now meaningful,
-`--merge` or `--rebase` preserves the six commits; `--squash` collapses them back to one.
-
-A new guard test (`TestDelugeVariablesAreDefined`) scans every `.deluge` file for reads of
+A guard test (`TestDelugeVariablesAreDefined`) scans every `.deluge` file for reads of
 undefined variables — added after a live `Variable 'parsed' is not defined` error that the
-string-matching tests could not catch because the assertion pinned the same typo.
+string-matching tests could not catch, because the assertion pinned the same typo.
 
 ### B. GitHub contribution attribution (per Blake, 2026-07-24)
 

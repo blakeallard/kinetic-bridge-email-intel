@@ -52,8 +52,18 @@ if(is_form_intake == true)
 	lead_source = "Website";
 }
 pending_contact = Map();
-pending_contact.put("first_name",first_name);
-pending_contact.put("last_name",last_name);
+if(is_form_intake == true)
+{
+	pending_contact.put("first_name",first_name);
+	pending_contact.put("last_name",last_name);
+}
+else
+{
+	pending_contact.put("first_name","");
+	pending_contact.put("last_name","");
+}
+pending_contact.put("fallback_first_name",first_name);
+pending_contact.put("fallback_last_name",last_name);
 pending_contact.put("company",company_name);
 pending_contact.put("email",safe_email);
 pending_contact.put("phone",structured_phone);

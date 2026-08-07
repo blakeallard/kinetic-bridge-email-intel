@@ -82,7 +82,11 @@ if(lead_email == "")
 	return result;
 }
 pending_message = ifnull(action_map.get("pending_message"),Map());
-lead_description = ifnull(pending_message.get("summary"),"").toString().trim();
+lead_description = ifnull(record.get("AI_Summary"),"").toString().trim();
+if(lead_description == "")
+{
+	lead_description = ifnull(pending_message.get("summary"),"").toString().trim();
+}
 if(lead_description.length() > 32000)
 {
 	lead_description = lead_description.subString(0,32000);
@@ -147,6 +151,22 @@ if(routed_mailbox != "")
 if(area_of_interest != "")
 {
 	lead_map.put("Area_of_Interest",area_of_interest);
+}
+signature_fields = Map();
+signature_fields.put("title","Designation");
+signature_fields.put("street","Street");
+signature_fields.put("city","City");
+signature_fields.put("state","State");
+signature_fields.put("zip_code","Zip_Code");
+signature_fields.put("country","Country");
+signature_fields.put("secondary_email","Secondary_Email");
+for each signature_key in signature_fields.keys()
+{
+	signature_value = ifnull(pending.get(signature_key),"").toString().trim();
+	if(signature_value != "")
+	{
+		lead_map.put(signature_fields.get(signature_key),signature_value);
+	}
 }
 owner_map = Map();
 owner_map.put("id",lead_owner_id);

@@ -1,0 +1,158 @@
+if(ifnull(input.Action_field,"").trim() != "create_deal")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		payload = Map();
+		payload_text = ifnull(input.Payload_JSON,"");
+		if(payload_text != "")
+		{
+			payload = payload_text.toMap();
+		}
+		deal_name_text = ifnull(payload.get("deal_name"),"").toString().trim();
+		contact_id_text = ifnull(payload.get("contact_id"),"").toString().trim();
+		account_id_text = ifnull(payload.get("account_id"),"").toString().trim();
+		account_name_text = ifnull(payload.get("account_name"),"").toString().trim();
+		lead_id_text = ifnull(payload.get("lead_id"),"").toString().trim();
+		if(deal_name_text == "")
+		{
+			out.put("error","create_deal requires deal_name in Payload_JSON");
+		}
+		else
+		{
+			lead_block_error = "";
+			converted_deal_id = "";
+			if(lead_id_text != "" && contact_id_text == "")
+			{
+				lead_rec = zoho.crm.getRecordById("Leads",lead_id_text.toLong());
+				if(lead_rec == null)
+				{
+					lead_block_error = "CRM Lead " + lead_id_text + " not found";
+				}
+				else
+				{
+					lead_email = ifnull(lead_rec.get("Email"),"").toString().trim().toLowerCase();
+					lead_company = ifnull(lead_rec.get("Company"),"").toString().trim();
+					is_converted = ifnull(lead_rec.get("$converted"),false);
+					if(lead_email != "")
+					{
+						existing_contacts = zoho.crm.searchRecords("Contacts","(Email:equals:" + lead_email + ")");
+						if(existing_contacts != null && existing_contacts.size() > 0)
+						{
+							contact_id_text = ifnull(existing_contacts.get(0).get("id"),"").toString();
+							contact_account = existing_contacts.get(0).get("Account_Name");
+							if(contact_account != null)
+							{
+								account_id_text = ifnull(contact_account.get("id"),"").toString();
+							}
+						}
+					}
+					if(account_id_text == "" && lead_company != "")
+					{
+						existing_accounts = zoho.crm.searchRecords("Accounts","(Account_Name:equals:" + lead_company + ")");
+						if(existing_accounts != null && existing_accounts.size() > 0)
+						{
+							account_id_text = ifnull(existing_accounts.get(0).get("id"),"").toString();
+						}
+					}
+					if(is_converted == false)
+					{
+						potential = Map();
+						potential.put("Deal_Name",deal_name_text);
+						potential.put("Stage","Proposal/Price Quote");
+						potential.put("Closing_Date",zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+						convert_values = Map();
+						convert_values.put("overwrite",true);
+						convert_values.put("Deals",potential);
+						if(account_id_text != "")
+						{
+							convert_values.put("Accounts",account_id_text);
+						}
+						if(contact_id_text != "")
+						{
+							convert_values.put("Contacts",contact_id_text);
+						}
+						conv = zoho.crm.convertLead(lead_id_text.toLong(),convert_values);
+						if(conv == null)
+						{
+							lead_block_error = "CRM Lead conversion returned null";
+						}
+						else
+						{
+							converted_deal_id = ifnull(conv.get("Deals"),"").toString().trim();
+							if(contact_id_text == "")
+							{
+								contact_id_text = ifnull(conv.get("Contacts"),"").toString().trim();
+							}
+							if(account_id_text == "")
+							{
+								account_id_text = ifnull(conv.get("Accounts"),"").toString().trim();
+							}
+							out.put("lead_converted","yes");
+						}
+					}
+				}
+			}
+			if(lead_block_error != "")
+			{
+				out.put("error",lead_block_error);
+			}
+			else if(converted_deal_id != "")
+			{
+				out.put("deal_id",converted_deal_id);
+				out.put("deal_name",deal_name_text);
+				out.put("stage","Proposal/Price Quote");
+				out.put("contact_id",contact_id_text);
+				out.put("account_id",account_id_text);
+				input.Request_Status = "done";
+			}
+			else
+			{
+			deal_data = Map();
+			deal_data.put("Deal_Name",deal_name_text);
+			deal_data.put("Stage","Proposal/Price Quote");
+			deal_data.put("Closing_Date",zoho.currentdate.addDay(30).toString("yyyy-MM-dd"));
+			if(account_id_text != "")
+			{
+				deal_data.put("Account_Name",account_id_text);
+			}
+			else if(account_name_text != "")
+			{
+				deal_data.put("Account_Name",account_name_text);
+			}
+			if(contact_id_text != "")
+			{
+				deal_data.put("Contact_Name",contact_id_text);
+			}
+			new_deal = zoho.crm.createRecord("Deals",deal_data);
+			created_id = "";
+			if(new_deal != null)
+			{
+				created_id = ifnull(new_deal.get("id"),"").toString();
+			}
+			if(created_id != "")
+			{
+				out.put("deal_id",created_id);
+				out.put("deal_name",deal_name_text);
+				out.put("stage","Proposal/Price Quote");
+				out.put("contact_id",contact_id_text);
+				out.put("account_id",account_id_text);
+				input.Request_Status = "done";
+			}
+			else
+			{
+				out.put("error","CRM Deal creation returned null");
+			}
+			}
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

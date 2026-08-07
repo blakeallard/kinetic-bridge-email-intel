@@ -1,0 +1,13 @@
+// OBSOLETE AS A LIVE PASTE — 2026-07-28
+//
+// This file used to be the single CRM_Bridge on-create workflow. It held ~25
+// zoho.crm / invokeurl statements in one Deluge function, which trips Creator's
+// "Total number of External Call Statements exceeded" under real QTS use.
+//
+// Source of truth is now one workflow per action:
+//   scripts/qts/crm_bridge/<action>.deluge
+//   scripts/qts/crm_bridge/DEPLOY.md
+//
+// Do NOT paste this file into Creator. Follow DEPLOY.md instead.
+//
+// Tests that need action bodies read the split files under crm_bridge/.

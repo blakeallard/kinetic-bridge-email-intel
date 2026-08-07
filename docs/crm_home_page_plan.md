@@ -65,16 +65,23 @@ Zoho **Projects** tasks (the BI1 internship/board work) live in a different prod
 are not natural CRM-Home content — surface them, if at all, via an embedded Web Tab, not a
 CRM component (see §4).
 
-### 1.3 Deals / pipeline — and the CRM-vs-Bigin split (business-critical)
+### 1.3 Deals / pipeline — CRM is now the pipeline of record (D1 CLOSED, 2026-07-28)
 
-CRM has a `Deals` module with a full pipeline (Qualification → … → Closed Won). **But
-Bevco's actual live opportunities — SK On, Motive Workforce, Meyers Manx, Voltaic Marine,
-Electricfish — are tracked in Bigin, not CRM Deals** (per the org's own account notes).
-The AI workflow operates against **CRM**, and unmatched senders become **CRM Leads**
-(`scripts/create_lead_for_unmatched.deluge`). So a CRM Home page that shows
-"Deals" would today be nearly empty while the real pipeline sits in Bigin. This tension is
-the single biggest open business decision (see §5) and the page design must not paper over
-it.
+**Update (2026-07-28): decision D1 is resolved by events.** QTS now creates real CRM
+Deals on every quote — quoting a Lead auto-converts it to Account + Contact + Deal, QTS
+populates `Deals.Associated_Products`, and the document Flow upserts CRM `Quotes` records
+with the PDF attached (see `STATUS.md`, Test A 2026-07-27). The original tension (live
+opportunities tracked in Bigin, empty CRM Deals) is dissolving: new business flows into
+CRM Deals through the quote path. Bigin still holds historical/legacy opportunities
+(SK On, Motive Workforce, Meyers Manx, Voltaic Marine, Electricfish) — surface those via
+an embedded Bigin Web Tab only until they migrate or close; do not build new Bigin
+components.
+
+**Bill is restructuring CRM Deals into three pipelines** (Cliq, 2026-07-27): **Services**,
+**BMS Distribution**, **Cell/Battery Distribution** — each with its own stage list (all
+three retain `Proposal/Price Quote`, which the QTS bridge hardcodes, so nothing breaks).
+The Deals components below must be parameterized per pipeline; exact stage lists come
+from Bill's restructure (open decision D7).
 
 ### 1.4 Leads / Contacts / Accounts
 
@@ -83,16 +90,22 @@ resolves an inbound sender to a Contact → Lead → Account (by domain) in that
 (`scripts/resolve_crm_match.deluge`), and creates a Lead for unknown senders.
 Leads/Contacts/Accounts are the click-through destinations from a recommendation.
 
-### 1.5 TeamInbox threads — NOT a CRM module
+### 1.5 Email threads — per-record is solved; the mail surface is Zoho Mail (updated 2026-07-28)
 
-TeamInbox is a separate Zoho product. There is **no CRM module** for its threads, so they
-cannot be shown by a native Home component or list view. The project already solves the
-*record-level* version of this: `scripts/associate_email_to_crm_record.deluge` writes the
-inbound email into the matched Contact/Lead/Account's **Emails related list** via the CRM
-V8 Associate Email API (verified live). So the client's recent thread is visible *inside
-the CRM record*, which is reachable from a recommendation. A *cross-inbox* "recent threads
-awaiting reply" panel, independent of a specific record, requires either the TeamInbox API
-or an embedded TeamInbox Web Tab (§3, §4).
+Email threads are not a CRM module, so they cannot be shown by a native Home component.
+The project already solves the *record-level* version:
+`scripts/associate_email_to_crm_record.deluge` writes the inbound email into the matched
+Contact/Lead/Account's **Emails related list** via the CRM V8 Associate Email API
+(verified live). So the client's recent thread is visible *inside the CRM record*, which
+is reachable from a recommendation.
+
+**Update (2026-07-28): the cross-inbox surface is Zoho Mail, not TeamInbox.**
+`docs/teaminbox_retirement_assessment.md` records the verdict to retire TeamInbox (its
+only unique value — shared-inbox collab UI — is covered for 3 users by CRM records +
+Cliq, and the Mail API is required anyway for thread continuity). The mail surfaces for
+this page are therefore: an embedded **Zoho Mail Web Tab** for the raw shared inbox, and
+the **Zoho Mail eWidget** for CRM context while working inside Mail. Do not build
+anything new against the TeamInbox API.
 
 ### 1.6 The load-bearing constraint: `Target_Record_ID` is text, not a lookup
 
@@ -195,12 +208,24 @@ urgency, project-specific work first.
   `Due_Date` asc. This is where an executed recommendation lands, so it closes the loop
   visually next to the queue that created it.
 
-**F. Deals Needing Attention** *(conditional on the CRM-vs-Bigin decision, §5)*.
-- If CRM Deals is chosen as the pipeline of record: list view "Needs Attention" =
-  open stage AND (`Closing_Date` within 14 days OR no activity in N days), sort
-  `Closing_Date` asc; plus a pipeline **funnel chart** component by `Stage`.
-- If Bigin remains the pipeline: replace this with an **embedded Bigin Web Tab** (§4) —
-  do not show an empty CRM Deals component.
+**F. Deals Needing Attention** *(CRM is the pipeline of record — D1 closed; stage names
+pending Bill's three-pipeline restructure, D7)*.
+- List view "Needs Attention" = open stage AND (`Closing_Date` within 14 days OR no
+  activity in N days), sort `Closing_Date` asc; plus a pipeline **funnel chart**
+  component — one per pipeline (Services / BMS Distribution / Cell-Battery Distribution)
+  or a single chart segmented by pipeline, per Bill's preference at the meeting.
+- Legacy Bigin opportunities: optional embedded Bigin Web Tab until they migrate/close.
+
+**F2. Quotes strip (new, 2026-07-28).** CRM `Quotes` records now exist with PDFs
+attached (QTS document Flow). Two list views: **"Open Quotes"** = `Status` not terminal,
+sort `Valid_Till` asc (expiring first); **"Signed Quotes"** = `Status = Signed` (arrives
+with the Sign integration) — this doubles as the finalized-quotes **ledger**: a live view
+over the database, deliberately instead of any exported sheet (see the one-database rule
+in the project plan). Columns: Subject · Deal · Contact · Grand Total · Valid Till.
+
+**F3. QTS launcher (new, 2026-07-28).** One-click path into the QTS quote builder from
+the dashboard: an embedded **Web Tab** pointing at the QTS Creator app (or a simple link
+component if a full tab is too heavy). Mechanism = open decision D9.
 
 **G. New / Uncontacted Leads.**
 - Source: `Leads` list view = `Lead_Status IN (Not Contacted, Attempted to Contact)`,
@@ -209,11 +234,12 @@ urgency, project-specific work first.
   advances `Not Contacted → Contacted` on first outbound reply
   (`scripts/advance_lead_on_first_outbound.deluge`).
 
-**H. Recent Client Threads** *(enhancement — not native)*.
+**H. Recent Client Threads** *(enhancement — not native; updated 2026-07-28)*.
 - MVP: **omit** from the native Home tab; the thread is visible inside each Contact/Lead/
   Account's Emails related list, one click from a recommendation.
-- Enhancement: an **embedded TeamInbox Web Tab** for the raw shared inbox, and/or a
-  Creator/Sigma panel listing recent inbound threads awaiting reply via the TeamInbox API.
+- Enhancement: an **embedded Zoho Mail Web Tab** for the raw shared inbox (replaces the
+  earlier TeamInbox idea — see §1.5 and `docs/teaminbox_retirement_assessment.md`), plus
+  the **Mail eWidget** for CRM context inside Mail.
 
 ### 3.2 Cross-linking model (how the pieces connect)
 
@@ -304,8 +330,9 @@ the recommendation-list → target hop, which the formula field restores.
    **Recently Executed**, **Fallback** (filters/sorts/columns per §3.1).
 2. Create the **"Command Center"** Home layout; add components A–E and G; assign to both
    profiles.
-3. Add Deals component/funnel **only if** CRM is chosen as the pipeline of record
-   (decision D1); otherwise leave a placeholder for the Bigin Web Tab.
+3. Add the Deals components/funnels (CRM is the pipeline of record — D1 closed) once
+   Bill's three-pipeline stage lists are confirmed (D7), plus the F2 Quotes strip and the
+   F3 QTS launcher.
 All achievable in the CRM setup UI with no Deluge, no hosting, no new scope.
 
 ### Phase 1 — clickability & polish (tiny, still low-code)
@@ -318,8 +345,9 @@ All achievable in the CRM setup UI with no Deluge, no hosting, no new scope.
 
 ### Phase 2 — connect the non-CRM surfaces (only if the pain justifies it)
 
-6. Embed a **TeamInbox Web Tab** (raw shared inbox) and/or a **Bigin Web Tab** (real
-   pipeline) as CRM Web Tabs — no code, uses each product's own auth.
+6. Embed a **Zoho Mail Web Tab** (raw shared inbox; replaces the earlier TeamInbox idea)
+   and/or a **Bigin Web Tab** (legacy opportunities only) as CRM Web Tabs — no code, uses
+   each product's own auth. Enable the **Mail eWidget** for CRM context inside Mail.
 7. If a true unified panel is wanted (recent inbound threads awaiting reply + Bigin + AI
    recs in one custom view with rich links), build a **Zoho Creator page embedded as a Web
    Tab** — preferred over a self-hosted Sigma widget for a 3-person team.
@@ -333,21 +361,30 @@ All achievable in the CRM setup UI with no Deluge, no hosting, no new scope.
 
 ### Open decisions for Blake
 
-- **D1 — Pipeline of record: CRM Deals vs Bigin.** The AI workflow feeds CRM; the live
-  deals (SK On, Motive, Meyers Manx, …) are in Bigin. Decide whether the Home page's
-  pipeline section shows CRM Deals (and migrate/mirror opportunities there) or embeds
-  Bigin. This shapes section F and whether Phase 2 is needed early.
+- **D1 — CLOSED (2026-07-28): CRM Deals is the pipeline of record.** QTS creates real
+  CRM Deals + Quotes; Bigin holds legacy opportunities only (optional Web Tab until they
+  migrate/close). See §1.3.
 - **D2 — Clickability mechanism:** formula URL field (fast, MVP) vs converting
   `Target_Record_ID` to a lookup (richer, schema change). Recommend formula for MVP.
+  Either way **Tier 3 — needs Bill**.
 - **D3 — Confidence sort:** map `AI_Confidence` in `persist_recommendation` so the queue
   can sort by confidence, or keep oldest-first aging only. (Field exists but is unwritten.)
-- **D4 — TeamInbox surfacing depth:** rely on the per-record Emails related list (MVP) vs
-  invest in a cross-inbox "awaiting reply" panel (Creator/API, Phase 2).
+- **D4 — Mail surfacing depth** *(reworded from TeamInbox, 2026-07-28)*: rely on the
+  per-record Emails related list (MVP) vs an embedded Zoho Mail Web Tab / eWidget
+  (Phase 2). No TeamInbox investment either way.
 - **D5 — Who sees what:** confirm the single shared "Command Center" layout for all three
   users (recommended) vs per-role variants, and whether Bill/Bryan want owner-scoped Task/
   Lead components. Ties to the deferred "owner-by-inbox routing" enhancement.
 - **D6 — Zoho Projects tasks:** include an embedded Projects Web Tab on this page at all,
   or keep project work off the client-relationship home. Recommend keeping it off.
+- **D7 — NEW (meeting): three-pipeline stage lists.** Bill's restructure (Services / BMS
+  Distribution / Cell-Battery Distribution): confirm final stage names per pipeline, which
+  stages are terminal (is Parking Lot terminal?), and whether section F shows one funnel
+  per pipeline or one segmented funnel.
+- **D8 — NEW (meeting): dashboard scope for Bill/Bryan.** Which of components A–H/F2/F3
+  they actually want on day one vs later — the meeting's core dashboard question.
+- **D9 — NEW: QTS launch mechanism.** Embedded Web Tab (QTS inside CRM) vs link component
+  (opens Creator in a new tab). Web Tab recommended if the widget renders well embedded.
 
 ---
 
@@ -359,8 +396,9 @@ hosting, shared by all three users, and respectful of the Blueprint + Cliq gover
 already in place. Add **one formula URL field** so each recommendation row links straight
 to its target record, which already carries the source email thread (Emails related list)
 and the executed Task (Open Activities) — completing the *recommendation → thread → target
-→ tasks* chain the brief wants without any self-hosted component. Defer TeamInbox "recent
-threads" and the Bigin pipeline to an embedded **Web Tab / low-code Creator** phase, and
-only consider a self-hosted widget if that low-code embed proves insufficient. The two
-decisions that most change the shape of the page are **CRM Deals vs Bigin as the pipeline
-of record (D1)** and **how the recommendation links to its target (D2)**.
+→ tasks* chain the brief wants without any self-hosted component. Defer the Zoho Mail
+"recent threads" surface and the legacy-Bigin view to an embedded **Web Tab / low-code
+Creator** phase, and only consider a self-hosted widget if that low-code embed proves
+insufficient. With D1 closed (CRM Deals is the pipeline of record via QTS), the two
+decisions that most change the shape of the page are **Bill's three-pipeline stage lists
+(D7)** and **how the recommendation links to its target (D2, Tier 3)**.

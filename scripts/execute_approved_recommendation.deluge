@@ -225,115 +225,9 @@ if(claim_status != "success")
 	result.put("claim_details",claim_details);
 	return result;
 }
-if(review_notes.length() > 1000)
-{
-	review_notes = review_notes.subString(0,999);
-}
-if(review_notes == "")
-{
-	review_notes = "(none)";
-}
-if(message_id.length() > 255)
-{
-	message_id = message_id.subString(0,254);
-}
-if(idempotency_key.length() > 255)
-{
-	idempotency_key = idempotency_key.subString(0,254);
-}
-if(reviewed_by.length() > 255)
-{
-	reviewed_by = reviewed_by.subString(0,254);
-}
-if(reviewed_at.length() > 255)
-{
-	reviewed_at = reviewed_at.subString(0,254);
-}
-subject_topic = ai_category;
-if(subject_topic == "")
-{
-	subject_topic = "AI Recommendation";
-}
-subject = "Follow up: " + subject_topic;
-if(sender_email != "")
-{
-	subject = subject + " - " + sender_email;
-}
-if(subject.length() > 255)
-{
-	subject = subject.subString(0,254);
-}
-new_line = hexToText("0A");
-description = "Created by the BI1-T110 approved-action executor.";
-description = description + new_line + new_line + "AI Recommendation record: " + record_id;
-description = description + new_line + "Idempotency key: " + idempotency_key;
-description = description + new_line + "Source message ID: " + message_id;
-description = description + new_line + "Recommendation type: " + allowed_recommendation_type;
-description = description + new_line + "Target: " + target_module + " / " + target_record_id;
-description = description + new_line + "Approved by: " + reviewed_by;
-description = description + new_line + "Approved at: " + reviewed_at;
-description = description + new_line + new_line + "Reviewer notes:" + new_line + review_notes;
-description = description + new_line + new_line + "This Task was generated only from persisted, human-approved recommendation fields. The raw AI response was not interpreted and its instructions were not executed. Open the AI Recommendation record to read the original analysis.";
-if(description.length() > 4000)
-{
-	description = description.subString(0,3999);
-}
-task_due_days = 2;
-fallback_task_owner_id = "6719186000002395001";
-task_owner_id = reviewed_by_id;
-if(task_owner_id == "")
-{
-	task_owner_id = fallback_task_owner_id;
-}
-task_owner = Map();
-task_owner.put("id",task_owner_id);
-task = Map();
-task.put("Subject",subject);
-task.put("Description",description);
-task.put("Status","Not Started");
-task.put("Priority","Normal");
-task.put("Owner",task_owner);
-task.put("Due_Date",zoho.currentdate.addDay(task_due_days).toString("yyyy-MM-dd"));
-target_lookup = Map();
-target_lookup.put("id",target_record_id);
-if(target_module == "Contacts")
-{
-	task.put("Who_Id",target_lookup);
-}
-else
-{
-	task.put("What_Id",target_lookup);
-}
-task.put("$se_module",target_module);
-task_response = zoho.crm.createRecord("Tasks",task);
-new_task_id = "";
-if(task_response != null)
-{
-	new_task_id = ifnull(task_response.get("id"),"").toString().trim();
-}
-if(new_task_id == "")
-{
-	failure_text = "task_create_failed";
-	if(task_response != null)
-	{
-		failure_text = "task_create_failed: " + task_response.toString();
-	}
-	if(failure_text.length() > 500)
-	{
-		failure_text = failure_text.subString(0,499);
-	}
-	failed_update = Map();
-	failed_update.put("Execution_Status","Failed");
-	failed_update.put("Execution_Error",failure_text);
-	zoho.crm.updateRecord(module_api_name,record_id,failed_update);
-	result.put("status","failed");
-	result.put("reason","task_create_failed");
-	result.put("record_id",record_id);
-	result.put("attempts",new_attempts);
-	return result;
-}
+// Bill 2026-07-28: Approve materializes CRM people/company records (Flow
+// materialize_pending_lead + associate_email) and must NOT create a CRM Task.
 success_update = Map();
-success_update.put("Executed_Task_ID",new_task_id);
 success_update.put("Executed_At",zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ssXXX"));
 success_update.put("Execution_Status","Executed");
 success_update.put("Execution_Error","");
@@ -343,13 +237,15 @@ if(success_response == null || ifnull(success_response.get("id"),"").toString() 
 	result.put("status","failed");
 	result.put("reason","post_execution_write_failed");
 	result.put("record_id",record_id);
-	result.put("executed_task_id",new_task_id);
 	return result;
 }
 result.put("status","executed");
 result.put("record_id",record_id);
-result.put("executed_task_id",new_task_id);
+result.put("executed_task_id","");
+result.put("task_created","no");
 result.put("execution_key",execution_key);
 result.put("attempts",new_attempts);
+result.put("target_module",target_module);
+result.put("target_record_id",target_record_id);
 return result;
 }

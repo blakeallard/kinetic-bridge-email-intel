@@ -1,0 +1,61 @@
+if(ifnull(input.Action_field,"").trim() != "get_tax")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		org_resp = invokeurl
+		[
+			url :"https://www.zohoapis.com/books/v3/organizations"
+			type :GET
+			connection:"zoho_books_connection"
+		];
+		orgs = org_resp.get("organizations");
+		org_id = "";
+		org_count = 0;
+		if(orgs != null)
+		{
+			org_count = orgs.size();
+			if(org_count == 1)
+			{
+				org_id = ifnull(orgs.get(0).get("organization_id"),"");
+			}
+		}
+		if(org_id == "")
+		{
+			if(org_count > 1)
+			{
+				out.put("error","Tax unavailable -- multiple Books organizations returned (" + org_count + "); explicit organization selection required (see docs/TAX_AUTOMATION_PLAN.md)");
+			}
+			else
+			{
+				out.put("error","Tax unavailable -- Zoho Books returned no organization via zoho_books_connection");
+			}
+			out.put("tax_status","not_connected");
+			out.put("source","zoho_books");
+		}
+		else
+		{
+			taxes_resp = invokeurl
+			[
+				url :"https://www.zohoapis.com/books/v3/settings/taxes?organization_id=" + org_id
+				type :GET
+				connection:"zoho_books_connection"
+			];
+			tax_list = ifnull(taxes_resp.get("taxes"),List());
+			out.put("organization_id",org_id);
+			out.put("configured_taxes",tax_list);
+			out.put("source","zoho_books");
+			out.put("tax_status","insufficient_permissions");
+			out.put("error","Tax unavailable -- read-only tax list cannot produce an address-specific rate; Sales Tax Automation calculates at transaction level. Smallest additional permission: Estimates -> Create (draft-estimate probe). See docs/TAX_AUTOMATION_PLAN.md.");
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

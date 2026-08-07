@@ -1,0 +1,163 @@
+map send_quote_for_signature(string quote_request_id, string quote_number, string existing_sign_request_id, string customer_name, string customer_email, string recipient_name, string recipient_email, map merge_data, string quotes_folder_id)
+{
+result = Map();
+result.put("status","skipped");
+result.put("reason","");
+result.put("sign_request_id","");
+result.put("sign_action","");
+result.put("quote_filed_to_workdrive","no");
+template_document_id = "h5zhu2051759ecefd4148816cf61ad65a9cbc";
+map_app_owner = "blakeallard11";
+map_app_link = "quoting-tool-storefront";
+map_form_link = "Quote_Request";
+map_report_link = "Quote_Request_Report";
+safe_request_id = ifnull(quote_request_id,"").trim();
+if(safe_request_id == "")
+{
+	result.put("reason","quote_request_id_missing");
+	return result;
+}
+safe_quote_number = ifnull(quote_number,"").trim();
+if(safe_quote_number == "")
+{
+	result.put("reason","quote_number_missing");
+	return result;
+}
+already_sent = ifnull(existing_sign_request_id,"").trim();
+if(already_sent != "")
+{
+	result.put("status","skipped");
+	result.put("reason","sign_request_already_exists");
+	result.put("sign_request_id",already_sent);
+	result.put("sign_action","noop");
+	return result;
+}
+safe_customer_email = ifnull(customer_email,"").trim();
+if(safe_customer_email == "" || !safe_customer_email.contains("@"))
+{
+	result.put("status","failed");
+	result.put("reason","customer_signer_email_missing");
+	return result;
+}
+if(merge_data == null || merge_data.isEmpty())
+{
+	result.put("status","failed");
+	result.put("reason","merge_data_missing");
+	return result;
+}
+safe_customer_name = ifnull(customer_name,"").trim();
+if(safe_customer_name == "")
+{
+	safe_customer_name = safe_customer_email;
+}
+safe_recipient_email = ifnull(recipient_email,"").trim();
+safe_recipient_name = ifnull(recipient_name,"").trim();
+data_list = List();
+data_list.add(merge_data);
+merge_payload = Map();
+merge_payload.put("data",data_list);
+merge_params = Map();
+merge_params.put("merge_data",merge_payload.toString());
+merge_params.put("output_settings","{\"format\":\"pdf\"}");
+merge_params.put("filename","Kinetic_Bridge_Quote_" + safe_quote_number);
+merged_file = invokeurl
+[
+	url : "https://writer.zoho.com/writer/api/v1/documents/" + template_document_id + "/merge"
+	type : POST
+	parameters : merge_params
+	connection : "writer_to_flow"
+];
+if(merged_file == null)
+{
+	result.put("status","failed");
+	result.put("reason","merge_failed");
+	return result;
+}
+actions_list = List();
+customer_action = Map();
+customer_action.put("action_type","SIGN");
+customer_action.put("recipient_name",safe_customer_name);
+customer_action.put("recipient_email",safe_customer_email);
+customer_action.put("signing_order",1);
+customer_action.put("verify_recipient",false);
+actions_list.add(customer_action);
+if(safe_recipient_email != "" && safe_recipient_email.contains("@"))
+{
+	internal_action = Map();
+	internal_action.put("action_type","SIGN");
+	internal_action.put("recipient_name",safe_recipient_name);
+	internal_action.put("recipient_email",safe_recipient_email);
+	internal_action.put("signing_order",2);
+	internal_action.put("verify_recipient",false);
+	actions_list.add(internal_action);
+}
+request_inner = Map();
+request_inner.put("request_name","Kinetic Bridge Quote " + safe_quote_number);
+request_inner.put("is_sequential",true);
+request_inner.put("actions",actions_list);
+request_outer = Map();
+request_outer.put("requests",request_inner);
+sign_params = Map();
+sign_params.put("data",request_outer.toString());
+sign_response = invokeurl
+[
+	url : "https://sign.zoho.com/api/v1/requests"
+	type : POST
+	parameters : sign_params
+	files : merged_file
+	connection : "sign_to_flow"
+];
+sign_requests = ifnull(sign_response.get("requests"),Map());
+sign_request_id = ifnull(sign_requests.get("request_id"),"").toString();
+if(sign_request_id == "")
+{
+	result.put("status","failed");
+	result.put("reason","sign_request_create_failed");
+	return result;
+}
+result.put("sign_request_id",sign_request_id);
+result.put("sign_action","created");
+submit_response = invokeurl
+[
+	url : "https://sign.zoho.com/api/v1/requests/" + sign_request_id + "/submit"
+	type : POST
+	connection : "sign_to_flow"
+];
+try
+{
+	writeback = Map();
+	writeback.put("Sign_Request_ID",sign_request_id);
+	zoho.creator.updateRecord(map_app_owner,map_app_link,map_report_link,safe_request_id.toLong(),writeback,Map(),"creator_to_flow");
+}
+catch (writeback_error)
+{
+	info "sign request id writeback failed: " + writeback_error;
+	result.put("reason","sign_request_id_writeback_failed");
+}
+safe_quotes_folder = ifnull(quotes_folder_id,"").trim();
+if(safe_quotes_folder != "")
+{
+	try
+	{
+		upload_params = Map();
+		upload_params.put("parent_id",safe_quotes_folder);
+		upload_params.put("filename","Kinetic_Bridge_Quote_" + safe_quote_number + ".pdf");
+		upload_params.put("override-name-exist","true");
+		invokeurl
+		[
+			url : "https://upload.zoho.com/workdrive-api/v1/upload"
+			type : POST
+			parameters : upload_params
+			files : merged_file
+			connection : "workdrive_to_flow"
+		];
+		result.put("quote_filed_to_workdrive","yes");
+	}
+	catch (upload_error)
+	{
+		info "quote pdf workdrive filing failed: " + upload_error;
+	}
+}
+result.put("status","sent");
+return result;
+}

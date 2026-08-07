@@ -1,0 +1,254 @@
+map ensure_workdrive_folder_path(string deal_id, string account_name, string deal_name, string deal_date, string accounts_root_folder_id)
+{
+result = Map();
+result.put("status","skipped");
+result.put("reason","");
+result.put("map_action","");
+result.put("account_folder_id","");
+result.put("deals_root_folder_id","");
+result.put("deal_folder_id","");
+result.put("quotes_folder_id","");
+result.put("signed_folder_id","");
+result.put("correspondence_folder_id","");
+result.put("attachments_folder_id","");
+map_app_owner = "blakeallard11";
+map_app_link = "quoting-tool-storefront";
+map_form_link = "WorkDrive_Folder_Map";
+map_report_link = "WorkDrive_Folder_Map_Report";
+safe_deal_id = ifnull(deal_id,"").trim();
+if(safe_deal_id == "")
+{
+	result.put("reason","deal_id_missing");
+	return result;
+}
+safe_root_id = ifnull(accounts_root_folder_id,"").trim();
+if(safe_root_id == "")
+{
+	result.put("reason","accounts_root_folder_id_missing");
+	return result;
+}
+safe_account_name = ifnull(account_name,"").trim();
+if(safe_account_name == "")
+{
+	safe_account_name = "Unknown Account";
+}
+safe_deal_name = ifnull(deal_name,"").trim();
+if(safe_deal_name == "")
+{
+	safe_deal_name = "Deal " + safe_deal_id;
+}
+safe_deal_date = ifnull(deal_date,"").trim();
+clean_account = safe_account_name.replaceAll("[/\\\\:*?\"<>|]"," ",false).trim();
+clean_deal = safe_deal_name.replaceAll("[/\\\\:*?\"<>|]"," ",false).trim();
+if(clean_account.length() > 100)
+{
+	clean_account = clean_account.subString(0,100).trim();
+}
+if(clean_deal.length() > 80)
+{
+	clean_deal = clean_deal.subString(0,80).trim();
+}
+deal_folder_name = clean_deal;
+if(safe_deal_date != "")
+{
+	deal_folder_name = safe_deal_date + " " + clean_deal;
+}
+try
+{
+	existing_rows = zoho.creator.getRecords(map_app_owner,map_app_link,map_report_link,"Record_ID == \"" + safe_deal_id + "\"",1,10,"creator_to_flow");
+	if(existing_rows != null && existing_rows.size() > 0)
+	{
+		stored = ifnull(existing_rows.get(0).get("Folder_JSON"),"");
+		if(stored != "")
+		{
+			stored_map = stored.toMap();
+			result.put("account_folder_id",ifnull(stored_map.get("account_folder_id"),""));
+			result.put("deals_root_folder_id",ifnull(stored_map.get("deals_root_folder_id"),""));
+			result.put("deal_folder_id",ifnull(stored_map.get("deal_folder_id"),""));
+			result.put("quotes_folder_id",ifnull(stored_map.get("quotes_folder_id"),""));
+			result.put("signed_folder_id",ifnull(stored_map.get("signed_folder_id"),""));
+			result.put("correspondence_folder_id",ifnull(stored_map.get("correspondence_folder_id"),""));
+			result.put("attachments_folder_id",ifnull(stored_map.get("attachments_folder_id"),""));
+			if(ifnull(result.get("deal_folder_id"),"") != "" && ifnull(result.get("signed_folder_id"),"") != "")
+			{
+				result.put("status","ok");
+				result.put("map_action","hit");
+				return result;
+			}
+		}
+	}
+}
+catch (map_read_error)
+{
+	info "workdrive map read failed: " + map_read_error;
+}
+folder_names = List();
+folder_names.add(clean_account);
+folder_names.add("Deals");
+folder_names.add(deal_folder_name);
+parent_id = safe_root_id;
+created_ids = List();
+for each  folder_name in folder_names
+{
+	found_id = "";
+	try
+	{
+		children = invokeurl
+		[
+			url : "https://www.zohoapis.com/workdrive/api/v1/files/" + parent_id + "/files?page%5Blimit%5D=50&filter%5Btype%5D=folder"
+			type : GET
+			connection : "workdrive_to_flow"
+		];
+		child_list = ifnull(children.get("data"),List());
+		for each  child in child_list
+		{
+			attrs = ifnull(child.get("attributes"),Map());
+			child_name = ifnull(attrs.get("name"),"").toString();
+			if(child_name.equalsIgnoreCase(folder_name))
+			{
+				found_id = ifnull(child.get("id"),"").toString();
+			}
+		}
+	}
+	catch (list_error)
+	{
+		info "workdrive list failed under " + parent_id + ": " + list_error;
+	}
+	if(found_id == "")
+	{
+		create_attrs = Map();
+		create_attrs.put("name",folder_name);
+		create_attrs.put("parent_id",parent_id);
+		create_data = Map();
+		create_data.put("attributes",create_attrs);
+		create_data.put("type","files");
+		create_body = Map();
+		create_body.put("data",create_data);
+		created = invokeurl
+		[
+			url : "https://www.zohoapis.com/workdrive/api/v1/files"
+			type : POST
+			parameters : create_body.toString()
+			headers : {"Content-Type":"application/vnd.api+json"}
+			connection : "workdrive_to_flow"
+		];
+		created_node = ifnull(created.get("data"),Map());
+		found_id = ifnull(created_node.get("id"),"").toString();
+		created_ids.add(found_id);
+	}
+	if(found_id == "")
+	{
+		result.put("status","failed");
+		result.put("reason","folder_resolve_failed:" + folder_name);
+		return result;
+	}
+	if(folder_name == clean_account)
+	{
+		result.put("account_folder_id",found_id);
+	}
+	if(folder_name == "Deals")
+	{
+		result.put("deals_root_folder_id",found_id);
+	}
+	if(folder_name == deal_folder_name)
+	{
+		result.put("deal_folder_id",found_id);
+	}
+	parent_id = found_id;
+}
+subfolder_names = List();
+subfolder_names.add("Quotes");
+subfolder_names.add("Signed");
+subfolder_names.add("Correspondence");
+subfolder_names.add("Attachments");
+deal_folder_id = ifnull(result.get("deal_folder_id"),"");
+for each  sub_name in subfolder_names
+{
+	sub_id = "";
+	try
+	{
+		sub_children = invokeurl
+		[
+			url : "https://www.zohoapis.com/workdrive/api/v1/files/" + deal_folder_id + "/files?page%5Blimit%5D=50&filter%5Btype%5D=folder"
+			type : GET
+			connection : "workdrive_to_flow"
+		];
+		sub_list = ifnull(sub_children.get("data"),List());
+		for each  sub_child in sub_list
+		{
+			sub_attrs = ifnull(sub_child.get("attributes"),Map());
+			sub_child_name = ifnull(sub_attrs.get("name"),"").toString();
+			if(sub_child_name.equalsIgnoreCase(sub_name))
+			{
+				sub_id = ifnull(sub_child.get("id"),"").toString();
+			}
+		}
+	}
+	catch (sub_list_error)
+	{
+		info "workdrive sublist failed: " + sub_list_error;
+	}
+	if(sub_id == "")
+	{
+		sub_attrs_map = Map();
+		sub_attrs_map.put("name",sub_name);
+		sub_attrs_map.put("parent_id",deal_folder_id);
+		sub_data = Map();
+		sub_data.put("attributes",sub_attrs_map);
+		sub_data.put("type","files");
+		sub_body = Map();
+		sub_body.put("data",sub_data);
+		sub_created = invokeurl
+		[
+			url : "https://www.zohoapis.com/workdrive/api/v1/files"
+			type : POST
+			parameters : sub_body.toString()
+			headers : {"Content-Type":"application/vnd.api+json"}
+			connection : "workdrive_to_flow"
+		];
+		sub_node = ifnull(sub_created.get("data"),Map());
+		sub_id = ifnull(sub_node.get("id"),"").toString();
+	}
+	if(sub_name == "Quotes")
+	{
+		result.put("quotes_folder_id",sub_id);
+	}
+	if(sub_name == "Signed")
+	{
+		result.put("signed_folder_id",sub_id);
+	}
+	if(sub_name == "Correspondence")
+	{
+		result.put("correspondence_folder_id",sub_id);
+	}
+	if(sub_name == "Attachments")
+	{
+		result.put("attachments_folder_id",sub_id);
+	}
+}
+folder_json = Map();
+folder_json.put("account_folder_id",ifnull(result.get("account_folder_id"),""));
+folder_json.put("deals_root_folder_id",ifnull(result.get("deals_root_folder_id"),""));
+folder_json.put("deal_folder_id",ifnull(result.get("deal_folder_id"),""));
+folder_json.put("quotes_folder_id",ifnull(result.get("quotes_folder_id"),""));
+folder_json.put("signed_folder_id",ifnull(result.get("signed_folder_id"),""));
+folder_json.put("correspondence_folder_id",ifnull(result.get("correspondence_folder_id"),""));
+folder_json.put("attachments_folder_id",ifnull(result.get("attachments_folder_id"),""));
+try
+{
+	map_row = Map();
+	map_row.put("Module","Deals");
+	map_row.put("Record_ID",safe_deal_id);
+	map_row.put("Folder_JSON",folder_json.toString());
+	map_row.put("Path",clean_account + "/Deals/" + deal_folder_name);
+	zoho.creator.createRecord(map_app_owner,map_app_link,map_form_link,map_row,Map(),"creator_to_flow");
+	result.put("map_action","created");
+}
+catch (map_write_error)
+{
+	info "workdrive map write failed: " + map_write_error;
+	result.put("map_action","write_failed");
+}
+result.put("status","ok");
+return result;
+}

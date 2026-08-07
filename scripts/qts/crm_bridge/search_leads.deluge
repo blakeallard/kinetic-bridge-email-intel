@@ -1,0 +1,66 @@
+if(ifnull(input.Action_field,"").trim() != "search_leads")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		query_text = ifnull(input.Query_Text,"").trim();
+		lead_matches = List();
+		seen_lead_ids = List();
+		if(query_text != "")
+		{
+			lead_combined = "((Email:starts_with:" + query_text + ")or(Last_Name:starts_with:" + query_text + ")or(First_Name:starts_with:" + query_text + ")or(Company:starts_with:" + query_text + "))";
+			if(query_text.contains(" "))
+			{
+				name_tokens = query_text.toList(" ");
+				first_token = name_tokens.get(0).trim();
+				last_token = name_tokens.get(name_tokens.size() - 1).trim();
+				if(first_token != "" && last_token != "")
+				{
+					lead_combined = "(" + lead_combined + "or((First_Name:starts_with:" + first_token + ")and(Last_Name:starts_with:" + last_token + "))or((First_Name:starts_with:" + last_token + ")and(Last_Name:starts_with:" + first_token + ")))";
+				}
+			}
+			lead_criteria_list = List();
+			lead_criteria_list.add(lead_combined);
+			for each  lead_criteria in lead_criteria_list
+			{
+				found_leads = zoho.crm.searchRecords("Leads",lead_criteria);
+				if(found_leads != null)
+				{
+					for each  lead in found_leads
+					{
+						lead_id_val = ifnull(lead.get("id"),"").toString();
+						if(lead_id_val != "")
+						{
+							if(!seen_lead_ids.contains(lead_id_val))
+							{
+								is_converted = ifnull(lead.get("$converted"),false);
+								if(is_converted == false)
+								{
+									seen_lead_ids.add(lead_id_val);
+									row = Map();
+									row.put("lead_id",lead_id_val);
+									row.put("name",ifnull(lead.get("Full_Name"),""));
+									row.put("email",ifnull(lead.get("Email"),""));
+									row.put("phone",ifnull(lead.get("Phone"),""));
+									row.put("company",ifnull(lead.get("Company"),""));
+									lead_matches.add(row);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		out.put("lead_matches",lead_matches);
+		input.Request_Status = "done";
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

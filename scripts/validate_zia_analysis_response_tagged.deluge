@@ -79,9 +79,61 @@ if(!pending_contact.isEmpty())
 	if(pending_company == "")
 	{
 		pending_company = ifnull(zia_contact.get("company"),"").toString().trim();
-		if(pending_company.length() > 100)
+		if(pending_company.length() > 200)
 		{
-			pending_company = pending_company.subString(0,100);
+			pending_company = pending_company.subString(0,200);
+		}
+	}
+	if(pending_first == "")
+	{
+		pending_first = ifnull(pending_contact.get("fallback_first_name"),"").toString().trim();
+		if(pending_first.length() > 40)
+		{
+			pending_first = pending_first.subString(0,40);
+		}
+	}
+	if(pending_last == "")
+	{
+		pending_last = ifnull(pending_contact.get("fallback_last_name"),"").toString().trim();
+		if(pending_last.length() > 80)
+		{
+			pending_last = pending_last.subString(0,80);
+		}
+	}
+	zia_field_names = List();
+	zia_field_names.add("title");
+	zia_field_names.add("phone");
+	zia_field_names.add("street");
+	zia_field_names.add("city");
+	zia_field_names.add("state");
+	zia_field_names.add("zip_code");
+	zia_field_names.add("country");
+	zia_field_names.add("secondary_email");
+	zia_field_names.add("website");
+	zia_field_names.add("area_of_interest");
+	zia_field_caps = Map();
+	zia_field_caps.put("title",100);
+	zia_field_caps.put("phone",30);
+	zia_field_caps.put("street",250);
+	zia_field_caps.put("city",100);
+	zia_field_caps.put("state",100);
+	zia_field_caps.put("zip_code",30);
+	zia_field_caps.put("country",100);
+	zia_field_caps.put("secondary_email",100);
+	zia_field_caps.put("website",255);
+	zia_field_caps.put("area_of_interest",120);
+	for each zia_field_name in zia_field_names
+	{
+		existing_value = ifnull(pending_contact.get(zia_field_name),"").toString().trim();
+		if(existing_value == "")
+		{
+			extracted_value = ifnull(zia_contact.get(zia_field_name),"").toString().trim();
+			field_cap = ifnull(zia_field_caps.get(zia_field_name),0);
+			if(extracted_value.length() > field_cap)
+			{
+				extracted_value = extracted_value.subString(0,field_cap);
+			}
+			pending_contact.put(zia_field_name,extracted_value);
 		}
 	}
 	pending_email = ifnull(pending_contact.get("email"),"").toString().trim().toLowerCase();

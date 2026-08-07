@@ -1,0 +1,61 @@
+if(ifnull(input.Action_field,"").trim() != "get_quote_lines")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		quote_id_text = ifnull(input.Query_Text,"").trim();
+		if(quote_id_text == "")
+		{
+			out.put("error","get_quote_lines requires a Quote_Request record ID in Query_Text");
+		}
+		else
+		{
+			lines = List();
+			found_quote = false;
+			for each  quote in Quote_Request[ID == quote_id_text.toLong()]
+			{
+				found_quote = true;
+				for each  line in quote.Quote_Lines
+				{
+					row = Map();
+					row.put("part_number",ifnull(line.Part_Number,""));
+					row.put("description",ifnull(line.Description,""));
+					row.put("qty",ifnull(line.Qty,0));
+					row.put("unit_price",ifnull(line.Unit_Price,""));
+					row.put("fx_unit_price",ifnull(line.FX_Unit_Price,""));
+					row.put("line_total_usd",ifnull(line.Line_Total_USD,""));
+					row.put("line_total_fx",ifnull(line.Line_Total_FX,""));
+					row.put("kit_warning",ifnull(line.Kit_Warning,""));
+					lines.add(row);
+				}
+				break;
+			}
+			if(found_quote)
+			{
+				out.put("lines",lines);
+				for each  quote_hdr in Quote_Request[ID == quote_id_text.toLong()]
+				{
+					out.put("crm_deal_id",ifnull(quote_hdr.CRM_Deal_ID,""));
+					out.put("crm_contact_id",ifnull(quote_hdr.CRM_Contact_ID,""));
+					out.put("sign_request_id",ifnull(quote_hdr.Sign_Request_ID,""));
+					out.put("status",ifnull(quote_hdr.Status,""));
+					break;
+				}
+				input.Request_Status = "done";
+			}
+			else
+			{
+				out.put("error","Quote_Request " + quote_id_text + " not found");
+			}
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

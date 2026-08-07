@@ -466,8 +466,22 @@ class TestMaterializePendingLead(unittest.TestCase):
         self.assertIn('action_map.get("pending_message")', self.source)
         self.assertIn('result.put("normalized_message",pending_message)', self.source)
 
-    def test_description_comes_from_the_carried_summary_not_the_raw_body(self):
-        self.assertIn('lead_description = ifnull(pending_message.get("summary")', self.source)
+    def test_description_prefers_the_ai_summary_over_the_inbox_preview(self):
+        """`pending_message.summary` is TeamInbox's own ~100-char preview snippet,
+        not an analysis — live runs produced Descriptions cut mid-word ("from six v").
+        `AI_Summary` is a persisted, human-reviewed scalar on the record already in
+        hand, so no extra fetch is needed.
+
+        This deliberately admits model-authored prose into a Lead field. It is
+        display text a human reads, never an instruction surface, and the executor's
+        stricter rule — that it never reads AI_Summary for Task content — is
+        untouched and still pinned in tests/test_deluge_parity.py.
+        """
+        model_summary = self.source.index('lead_description = ifnull(record.get("AI_Summary")')
+        inbox_preview = self.source.index('lead_description = ifnull(pending_message.get("summary")')
+        self.assertLess(model_summary, inbox_preview)
+
+    def test_description_never_comes_from_the_raw_body_or_raw_model_response(self):
         for forbidden in ('pending_message.get("body_html")', "raw_zia_response"):
             self.assertNotIn(forbidden, self.source)
 
@@ -574,6 +588,13 @@ class TestMaterializePendingLead(unittest.TestCase):
 
 
 class TestCliqNotification(unittest.TestCase):
+    """Guards the rich Cliq review card.
+
+    This function existed only in live Zoho until 2026-07-26 -- the repo held a
+    stale plain-text version, and deploying that copy overwrote the live card.
+    The card is now source-controlled so the drift cannot recur.
+    """
+
     @classmethod
     def setUpClass(cls):
         cls.source = (SCRIPTS / "notify_cliq_new_recommendation.deluge").read_text()
@@ -581,34 +602,78 @@ class TestCliqNotification(unittest.TestCase):
     def test_takes_the_recommendation_record_id(self):
         self.assertTrue(
             self.source.startswith(
-                "void notify_cliq_new_recommendation(string recommendation_id)"
+                "void automation.notify_cliq_new_recommendation(String recommendation_id)"
             )
         )
 
     def test_reads_the_record_from_crm(self):
         self.assertIn(
-            'zoho.crm.getRecordById("AI_Recommendations",rec_id.toLong())', self.source
+            'zoho.crm.getRecordById("AI_Recommendations",recommendation_id.toLong())',
+            self.source,
         )
 
     def test_only_announces_pending_review_records(self):
         self.assertIn('if(status != "Pending Review")', self.source)
-        self.assertIn("return;", self.source)
 
-    def test_posts_to_the_configured_cliq_channel_through_a_connection(self):
+    def test_posts_a_structured_card_not_plain_text(self):
+        """The plain-text regression is what this pins."""
+        self.assertIn('card.put("theme","modern-inline")', self.source)
+        self.assertIn('message.put("card",card)', self.source)
+        self.assertIn('message.put("slides",slides)', self.source)
+        self.assertIn('message.put("buttons",buttons)', self.source)
         self.assertIn(
-            'zoho.cliq.postToChannel("airecommendationstest",message_text,"blake_cliq_connection")',
+            'zoho.cliq.postToChannel("airecommendationstest",message,"blake_cliq_connection")',
             self.source,
         )
+
+    def test_the_card_renders_both_slides(self):
+        for title in ("Recommendation", "Review details"):
+            self.assertIn(f'.put("title","{title}")', self.source)
+        for label in (
+            "Recommended action",
+            "Request type",
+            "Customer request",
+            "Why this is recommended",
+            "AI confidence",
+            "CRM record",
+            "Safety review",
+            "Validation",
+            "Reviewer guidance",
+        ):
+            self.assertIn(f'.put("{label}"', self.source)
+
+    def test_a_meeting_request_adds_guidance(self):
+        """`AI_Category` is a persisted, human-reviewable scalar. Conditioning on
+        it needs no new CRM field. No meeting time is ever proposed by the AI --
+        the human schedules from the record using CRM's native New Meeting.
+        """
+        self.assertIn('if(category == "Meeting Request")', self.source)
+        self.assertIn('.put("Meeting requested"', self.source)
+
+    def test_meeting_guidance_handles_a_deferred_lead(self):
+        """Cliq fires at ingestion, when a deferred lead has no Target_Record_ID
+        yet -- the common case for a new inquiry. Guarding on a matched record
+        suppressed the guidance for exactly the case it was written for.
+        """
+        self.assertIn('if(target_record_url == "")', self.source)
+        self.assertIn("Approve first to create the record", self.source)
+
+    def test_the_category_labels_match_the_live_zia_vocabulary(self):
+        for value in (
+            "Quote Request",
+            "Product Inquiry",
+            "Meeting Request",
+            "Support Request",
+            "Partnership",
+            "Other",
+        ):
+            self.assertIn(f'category_labels.put("{value}"', self.source)
 
     def test_includes_a_clickable_record_link(self):
         self.assertIn(
-            'record_url = "https://crm.zoho.com/crm/org883125891/tab/CustomModule1/" + rec_id',
+            'record_url = "https://crm.zoho.com/crm/org883125891/tab/CustomModule1/"',
             self.source,
         )
-
-    def test_carries_the_trusted_scalar_fields(self):
-        for field in ("Recommendation_Type", "Target_Module", "Target_Record_ID"):
-            self.assertIn(f'record.get("{field}")', self.source)
 
 
 class TestLeadOutboundAdvance(unittest.TestCase):
@@ -803,8 +868,8 @@ class TestDeferredLeadThreading(unittest.TestCase):
         for field in ("first_name", "last_name", "company"):
             self.assertIn(f'zia_contact.get("{field}")', self.validator)
 
-    def test_model_extraction_never_overwrites_a_derived_value(self):
-        """Precedence: form fields / sender name / Company: label beat the model."""
+    def test_model_extraction_never_overwrites_a_structured_value(self):
+        """Precedence: structured form fields / `Company:` label beat the model."""
         for guard in (
             'if(pending_first == "")',
             'if(pending_last == "")',
@@ -812,12 +877,69 @@ class TestDeferredLeadThreading(unittest.TestCase):
         ):
             self.assertIn(guard, self.validator)
 
+    def test_the_signature_outranks_the_envelope_display_name(self):
+        """A mail-client display string is weak evidence for who a person is; the
+        signature is that person's own declaration. `ensure_crm_match` therefore
+        parks the display name under fallback_* keys for email intake, and the
+        validator consumes the model's extraction first.
+
+        Observed live 2026-07-25: a signature reading "Dana Whitfield" lost to a
+        TeamInbox senderName of "Blake" because the derived value was applied
+        before the overlay and the overlay only fills blanks.
+        """
+        matcher = (SCRIPTS / "ensure_crm_match.deluge").read_text()
+        self.assertIn('pending_contact.put("fallback_first_name",first_name)', matcher)
+        self.assertIn('pending_contact.put("fallback_last_name",last_name)', matcher)
+        self.assertIn("if(is_form_intake == true)", matcher)
+
+        model_first = self.validator.index('zia_contact.get("first_name")')
+        fallback_first = self.validator.index('pending_contact.get("fallback_first_name")')
+        email_local = self.validator.index("pending_last = email_local")
+        self.assertLess(model_first, fallback_first)
+        self.assertLess(fallback_first, email_local)
+
     def test_model_extraction_is_ignored_when_the_response_did_not_parse(self):
         self.assertIn("if(parse_ok)", self.validator)
 
     def test_model_supplied_values_are_capped_to_the_crm_field_lengths(self):
-        for bound in (40, 80, 100):
+        for bound in (40, 80, 200):
             self.assertIn(f".length() > {bound}", self.validator)
+
+    def test_signature_fields_are_carried_with_their_live_field_caps(self):
+        """Caps come from a live getFields read on Leads, not from guesses."""
+        for field, cap in (
+            ("title", 100),
+            ("phone", 30),
+            ("street", 250),
+            ("city", 100),
+            ("state", 100),
+            ("zip_code", 30),
+            ("country", 100),
+            ("secondary_email", 100),
+            ("website", 255),
+            ("area_of_interest", 120),
+        ):
+            self.assertIn(f'zia_field_names.add("{field}")', self.validator)
+            self.assertIn(f'zia_field_caps.put("{field}",{cap})', self.validator)
+        self.assertIn("if(existing_value == \"\")", self.validator)
+
+    def test_signature_fields_map_to_the_live_lead_api_names(self):
+        """`Title` is labelled Title in the UI but its API name is Designation —
+        writing "Title" silently fails.
+        """
+        materializer = (SCRIPTS / "materialize_pending_lead.deluge").read_text()
+        for key, api_name in (
+            ("title", "Designation"),
+            ("street", "Street"),
+            ("city", "City"),
+            ("state", "State"),
+            ("zip_code", "Zip_Code"),
+            ("country", "Country"),
+            ("secondary_email", "Secondary_Email"),
+        ):
+            self.assertIn(f'signature_fields.put("{key}","{api_name}")', materializer)
+        self.assertNotIn('lead_map.put("Title"', materializer)
+        self.assertIn('if(signature_value != "")', materializer)
 
     def test_domain_fallback_applies_only_after_the_model(self):
         model_step = self.validator.index('zia_contact.get("company")')

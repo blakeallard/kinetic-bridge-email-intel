@@ -2,14 +2,14 @@
 
 Zoho Task ID: 2543412000001583003 (BI1-T110)
 
-The separate execution stage. It converts an **approved** `AI_Recommendations` record
-into exactly one Zoho CRM Task. It is deliberately a different Flow from the ingestion
-Flow so that approval and execution cannot share a failure mode.
+The separate execution stage. After approval, the Flow materializes CRM people/company
+records (`materialize_pending_lead` + `associate_email_to_crm_record`) and this function
+**claims** the recommendation and marks it `Executed`. It does **not** create a CRM Task
+or Event — Bill 2026-07-28: Approve bypasses the Task path.
 
-**Deployment state: DEPLOYED and ON** (as of 2026-07-22). The custom function and the
-`Execute Approved AI Recommendation` Flow are live in Zoho. Contact, Lead, and Account
-recommendations have each executed to a correctly linked CRM Task, and duplicate replays
-returned `duplicate` / `already_claimed` without creating a second Task.
+**Deployment state: DEPLOYED and ON** (as of 2026-07-22; Task-skip paste pending). The
+Flow remains live; paste the updated `execute_approved_recommendation` so Approve stops
+creating Tasks while still writing `Execution_Status=Executed`.
 
 The trigger is filtered by `Status = Approved AND Execution_Status = Not Started`, so the
 executor's own bookkeeping updates cannot re-qualify as new executions.
@@ -77,22 +77,23 @@ rather than only the first.
 
 | Status | Meaning | Task created? | Record writes |
 | --- | --- | --- | --- |
-| `executed` | Task created and recorded | yes, exactly one | `Executed_Task_ID`, `Executed_At`, `Execution_Status=Executed`, `Execution_Error` cleared |
+| `executed` | Claim succeeded; recommendation marked Executed | no (`task_created=no`) | `Executed_At`, `Execution_Status=Executed`, `Execution_Error` cleared |
 | `duplicate` | Already claimed, already executed, or lost the conditional claim race | no | none |
 | `blocked` | A policy check failed | no | `Execution_Status=Blocked`, `Execution_Error` = failed checks |
 | `failed` (pre-claim) | CRM error before the claim succeeded | no | none, or `Execution_Status=Blocked` on `blocked_write_failed` |
-| `failed` (post-claim) | CRM error after the claim succeeded; **terminal** | no (or unconfirmed) | `Execution_Status=Failed`, `Execution_Error` sanitized; `Execution_Key` stays populated |
+| `failed` (post-claim) | CRM error after the claim succeeded; **terminal** | no | claim fields stay; `Execution_Key` populated; no auto-retry |
 
 ### Ordering guarantees
 
 1. The **already-claimed check runs before the policy gate**, so a duplicate
    invocation never rewrites `Execution_Error`, never re-Blocks, and never burns an
    attempt.
-2. The **claim happens before Task creation**, and the claim is *conditional* — see
-   the next section.
-3. On a post-creation bookkeeping failure the function returns `failed` with
-   `post_execution_write_failed` **and** the created Task ID, rather than reporting
-   success. A blind retry would otherwise create a second Task — see Risks.
+2. The **claim happens before Executed is written**, and the claim is *conditional* —
+   see the next section.
+3. People/company CRM records are created by earlier Flow blocks
+   (`materialize_pending_lead`), not by this function.
+4. On a post-claim bookkeeping failure the function returns `failed` with
+   `post_execution_write_failed`. A blind retry is refused as `already_claimed`.
 
 ## How the atomic claim works, in plain English
 

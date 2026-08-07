@@ -22,14 +22,8 @@ sys.path.insert(0, str(REPO / "scripts"))
 from execution_policy import (
     ALLOWED_RECOMMENDATION_TYPE,
     ALLOWED_TARGET_MODULES,
-    ERROR_MAX_LEN,
-    FALLBACK_TASK_OWNER_ID,
     MAX_EXECUTION_ATTEMPTS,
     POLICY_CHECKS,
-    REVIEW_NOTES_MAX_LEN,
-    TASK_DESCRIPTION_MAX_LEN,
-    TASK_DUE_DAYS,
-    TASK_SUBJECT_MAX_LEN,
     evaluate_policy,
 )
 
@@ -80,53 +74,40 @@ class TestConstantParity(unittest.TestCase):
     def test_deals_is_not_in_the_deluge_allow_list(self):
         self.assertNotIn('"Deals"', CODE)
 
-    def test_bounds_match(self):
-        for bound in (TASK_SUBJECT_MAX_LEN, TASK_DESCRIPTION_MAX_LEN,
-                      REVIEW_NOTES_MAX_LEN, ERROR_MAX_LEN):
-            self.assertIn(f"> {bound}", CODE, f"missing a {bound}-char bound")
-
     def test_execution_status_values_match(self):
-        for status in ("Not Started", "In Progress", "Executed", "Failed", "Blocked"):
+        # Failed is no longer written by the executor (Task path removed); claim /
+        # block / execute still use these four.
+        for status in ("Not Started", "In Progress", "Executed", "Blocked"):
             self.assertIn(f'"{status}"', CODE)
 
-    def test_task_due_days_match(self):
-        self.assertIn(f"task_due_days = {TASK_DUE_DAYS}", CODE)
 
-    def test_fallback_task_owner_matches(self):
-        self.assertIn(f'fallback_task_owner_id = "{FALLBACK_TASK_OWNER_ID}"', CODE)
+class TestNoTaskOrEventCreation(unittest.TestCase):
+    """Approve marks the recommendation Executed; CRM people/company materialize
+    upstream (materialize_pending_lead). This function must not create Tasks or Events.
+    """
 
+    def test_deluge_creates_no_crm_records(self):
+        created = set(re.findall(r'zoho\.crm\.createRecord\("(\w+)"', CODE))
+        self.assertEqual(created, set())
 
-class TestTaskAssignmentParity(unittest.TestCase):
-    """The Task must land on the approver, be readable, and carry a due date."""
+    def test_deluge_never_mentions_task_or_event_create_payloads(self):
+        for fragment in (
+            'createRecord("Tasks"',
+            'createRecord("Events"',
+            'task.put(',
+            'event.put(',
+            "fallback_task_owner_id",
+            "task_due_days",
+        ):
+            self.assertNotIn(fragment, CODE, fragment)
 
-    def test_the_deluge_owns_the_task_to_the_approver(self):
-        self.assertIn('reviewed_by_id = ifnull(reviewed_by_raw.get("id")', CODE)
-        self.assertIn("task_owner_id = reviewed_by_id", CODE)
-        self.assertIn('task.put("Owner",task_owner)', CODE)
+    def test_result_reports_task_created_no(self):
+        self.assertIn('result.put("task_created","no")', CODE)
+        self.assertIn('result.put("executed_task_id","")', CODE)
 
-    def test_the_deluge_falls_back_rather_than_leaving_the_owner_unset(self):
-        self.assertIn('if(task_owner_id == "")', CODE)
-        self.assertIn("task_owner_id = fallback_task_owner_id", CODE)
-
-    def test_the_owner_is_an_id_object_not_a_bare_string(self):
-        self.assertIn('task_owner.put("id",task_owner_id)', CODE)
-        self.assertNotIn('task.put("Owner",task_owner_id)', CODE)
-
-    def test_the_deluge_sets_a_due_date(self):
-        self.assertIn(
-            'task.put("Due_Date",zoho.currentdate.addDay(task_due_days)'
-            '.toString("yyyy-MM-dd"))',
-            CODE,
-        )
-
-    def test_the_subject_is_readable_not_a_raw_message_id(self):
-        self.assertIn('subject = "Follow up: " + subject_topic', CODE)
-        self.assertNotIn('"AI Recommendation: follow up on email " + message_id', CODE)
-
-    def test_the_subject_never_reads_untrusted_model_output(self):
-        self.assertIn('ai_category = ifnull(record.get("AI_Category")', CODE)
-        for untrusted in ("AI_Summary", "AI_Rationale", "Raw_Zia_Response"):
-            self.assertNotIn(untrusted, CODE)
+    def test_success_path_marks_executed_without_executed_task_id(self):
+        self.assertIn('success_update.put("Execution_Status","Executed")', CODE)
+        self.assertNotIn('success_update.put("Executed_Task_ID"', CODE)
 
 
 class TestSafetyInvariants(unittest.TestCase):
@@ -134,10 +115,6 @@ class TestSafetyInvariants(unittest.TestCase):
         for field in ("Raw_Zia_Response", "Validated_Analysis_JSON"):
             self.assertNotIn(f'record.get("{field}")', CODE,
                              f"{field} must never be read by the executor")
-
-    def test_deluge_creates_only_tasks(self):
-        created = set(re.findall(r'zoho\.crm\.createRecord\("(\w+)"', CODE))
-        self.assertEqual(created, {"Tasks"})
 
     def test_deluge_updates_only_the_recommendation_module(self):
         updated = set(re.findall(r'zoho\.crm\.updateRecord\((\w+)', CODE))
@@ -149,7 +126,6 @@ class TestSafetyInvariants(unittest.TestCase):
             self.assertNotIn(forbidden, CODE, f"forbidden operation present: {forbidden}")
 
     def test_the_only_raw_http_call_is_the_conditional_claim(self):
-        """invokeurl bypasses the Deluge CRM wrapper, so its use must be pinned."""
         self.assertEqual(CODE.count("invokeurl"), 1)
         self.assertIn('headers : claim_headers', CODE)
         self.assertIn('type : PUT', CODE)
@@ -175,7 +151,6 @@ class TestAtomicClaim(unittest.TestCase):
         self.assertIn('"claim_lost_race"', CODE)
 
     def test_the_lost_race_check_uses_zohos_documented_error_code(self):
-        """Zoho answers a failed If-Unmodified-Since with HTTP 412 ALREADY_MODIFIED."""
         self.assertIn('claim_code == "ALREADY_MODIFIED"', CODE)
 
     def test_superseded_guesses_at_the_error_code_are_gone(self):
@@ -204,21 +179,16 @@ class TestAtomicClaim(unittest.TestCase):
         self.assertIn('result.put("claim_message",claim_message)', CODE)
         self.assertIn('result.put("claim_details",claim_details)', CODE)
 
-    def test_lost_race_is_handled_before_any_task_creation(self):
+    def test_lost_race_is_handled_before_success_write(self):
         self.assertLess(
             CODE.index('claim_code == "ALREADY_MODIFIED"'),
-            CODE.index('zoho.crm.createRecord("Tasks"'),
-            "the lost-race branch must return before a Task can be created",
+            CODE.index('success_update.put("Execution_Status","Executed")'),
+            "the lost-race branch must return before Executed is written",
         )
 
 
 class TestPostClaimFailureIsTerminal(unittest.TestCase):
-    """Finding 2: a POST-CLAIM failure is terminal and needs a human."""
-
-    def test_the_failure_path_never_clears_the_execution_key(self):
-        failure_block = CODE[CODE.index('failed_update = Map()'):
-                             CODE.index('result.put("status","failed")')]
-        self.assertNotIn("Execution_Key", failure_block)
+    """A POST-CLAIM bookkeeping failure is terminal and needs a human."""
 
     def test_nothing_resets_a_record_to_not_started(self):
         self.assertNotIn('put("Execution_Status","Not Started")', CODE)
@@ -229,7 +199,7 @@ class TestPostClaimFailureIsTerminal(unittest.TestCase):
 
     def test_the_claim_does_not_use_the_unconditional_update_wrapper(self):
         claim_block = CODE[CODE.index("new_attempts = execution_attempts + 1"):
-                           CODE.index("if(review_notes.length()")]
+                           CODE.index("if(claim_status != \"success\")")]
         self.assertNotIn("zoho.crm.updateRecord", claim_block,
                          "the claim must not fall back to an unconditional update")
 
@@ -244,73 +214,15 @@ class TestPostClaimFailureIsTerminal(unittest.TestCase):
             "the already-claimed check must run before the policy gate",
         )
 
-    def test_claim_precedes_task_creation(self):
+    def test_claim_precedes_executed_write(self):
         self.assertLess(
             CODE.index('claim_fields.put("Execution_Key"'),
-            CODE.index('zoho.crm.createRecord("Tasks"'),
-            "the execution must be claimed before a Task is created",
+            CODE.index('success_update.put("Execution_Status","Executed")'),
+            "the execution must be claimed before Executed is written",
         )
 
-    def test_failure_path_does_not_reset_the_attempt_count(self):
-        failure_block = CODE[CODE.index('failed_update = Map()'):CODE.index('result.put("status","failed")')]
-        self.assertNotIn("Execution_Attempts", failure_block)
-
-
-class TestTaskLookupStructure(unittest.TestCase):
-    """Who_Id/What_Id are jsonobject lookups — the Deluge must pass {"id": ...}.
-
-    A bare id string produces "expected jsonobject but received string" and was the
-    confirmed cause of the failed live Lead Task creation. Verified against the live
-    Tasks field metadata (both fields json_type=jsonobject) and Zoho Kaizen #36.
-    """
-
-    def test_deluge_wraps_the_target_id_in_an_id_object(self):
-        self.assertIn('target_lookup = Map()', CODE)
-        self.assertIn('target_lookup.put("id",target_record_id)', CODE)
-
-    def test_deluge_never_assigns_a_bare_string_to_a_lookup_field(self):
-        self.assertNotIn('task.put("Who_Id",target_record_id)', CODE)
-        self.assertNotIn('task.put("What_Id",target_record_id)', CODE)
-
-    def test_deluge_links_contacts_via_who_id_and_others_via_what_id(self):
-        self.assertIn('task.put("Who_Id",target_lookup)', CODE)
-        self.assertIn('task.put("What_Id",target_lookup)', CODE)
-
-    def test_deluge_sets_se_module_for_every_route(self):
-        self.assertEqual(CODE.count('task.put("$se_module",target_module)'), 1)
-
-    def test_deluge_reads_the_durable_key_from_ingestion_key_not_the_name_title(self):
-        self.assertIn('idempotency_key = ifnull(record.get("Ingestion_Key")', CODE)
-        self.assertNotIn('idempotency_key = ifnull(record.get("Name")', CODE)
-
-
-class TestTaskDescriptionNewlines(unittest.TestCase):
-    """The Task Description must render real line breaks in CRM.
-
-    Deluge does not interpret a "\\n" string literal as a newline — it emits a
-    literal backslash-n. The Python spec joins the same lines with a real newline,
-    so the Deluge must build the Description with hexToText("0A") to match.
-    """
-
-    def test_deluge_uses_a_real_newline_character(self):
-        self.assertIn('new_line = hexToText("0A")', CODE)
-
-    def test_no_literal_backslash_n_survives_in_the_deluge(self):
-        self.assertNotIn("\\n", CODE, "a literal backslash-n would print as text in CRM")
-
-    def test_the_description_is_assembled_from_the_newline_variable(self):
-        self.assertIn(
-            'description = description + new_line + "Idempotency key: " + idempotency_key',
-            CODE,
-        )
-        self.assertIn(
-            '"Reviewer notes:" + new_line + review_notes',
-            CODE,
-        )
-
-    def test_the_python_spec_joins_description_lines_with_a_real_newline(self):
-        spec = (REPO / "scripts" / "execution_policy.py").read_text()
-        self.assertIn('"\\n".join(description_lines)', spec)
+    def test_post_claim_write_failure_is_named(self):
+        self.assertIn('"post_execution_write_failed"', CODE)
 
 
 if __name__ == "__main__":

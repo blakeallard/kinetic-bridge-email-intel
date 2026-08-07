@@ -1,0 +1,74 @@
+if(ifnull(input.Action_field,"").trim() != "get_customer")
+{
+	return;
+}
+out = Map();
+input.Request_Status = "error";
+try
+{
+
+		contact_id_text = ifnull(input.Query_Text,"").trim();
+		if(contact_id_text != "")
+		{
+			contact = zoho.crm.getRecordById("Contacts",contact_id_text.toLong());
+			if(contact != null)
+			{
+				out.put("contact_id",contact_id_text);
+				out.put("first_name",ifnull(contact.get("First_Name"),""));
+				out.put("last_name",ifnull(contact.get("Last_Name"),""));
+				out.put("name",ifnull(contact.get("Full_Name"),""));
+				out.put("email",ifnull(contact.get("Email"),""));
+				out.put("phone",ifnull(contact.get("Phone"),""));
+				mailing = Map();
+				mailing.put("street",ifnull(contact.get("Mailing_Street"),""));
+				mailing.put("city",ifnull(contact.get("Mailing_City"),""));
+				mailing.put("state",ifnull(contact.get("Mailing_State"),""));
+				mailing.put("code",ifnull(contact.get("Mailing_Zip"),""));
+				mailing.put("country",ifnull(contact.get("Mailing_Country"),""));
+				out.put("mailing_address",mailing);
+				account_ref = contact.get("Account_Name");
+				if(account_ref != null)
+				{
+					account_id_text = ifnull(account_ref.get("id"),"").toString();
+					out.put("account_id",account_id_text);
+					out.put("account_name",ifnull(account_ref.get("name"),""));
+					if(account_id_text != "")
+					{
+						account = zoho.crm.getRecordById("Accounts",account_id_text.toLong());
+						if(account != null)
+						{
+							billing = Map();
+							billing.put("street",ifnull(account.get("Billing_Street"),""));
+							billing.put("city",ifnull(account.get("Billing_City"),""));
+							billing.put("state",ifnull(account.get("Billing_State"),""));
+							billing.put("code",ifnull(account.get("Billing_Code"),""));
+							billing.put("country",ifnull(account.get("Billing_Country"),""));
+							out.put("billing_address",billing);
+							shipping = Map();
+							shipping.put("street",ifnull(account.get("Shipping_Street"),""));
+							shipping.put("city",ifnull(account.get("Shipping_City"),""));
+							shipping.put("state",ifnull(account.get("Shipping_State"),""));
+							shipping.put("code",ifnull(account.get("Shipping_Code"),""));
+							shipping.put("country",ifnull(account.get("Shipping_Country"),""));
+							out.put("shipping_address",shipping);
+						}
+					}
+				}
+				input.Request_Status = "done";
+			}
+			else
+			{
+				out.put("error","Contact " + contact_id_text + " not found");
+			}
+		}
+		else
+		{
+			out.put("error","get_customer requires a Contact ID in Query_Text");
+		}
+}
+catch (bridge_error)
+{
+	input.Request_Status = "error";
+	out.put("error",bridge_error.toString());
+}
+input.Result_jSON = out.toString();

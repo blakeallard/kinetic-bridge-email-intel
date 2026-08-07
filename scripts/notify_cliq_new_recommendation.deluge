@@ -1,35 +1,247 @@
-void notify_cliq_new_recommendation(string recommendation_id)
+void automation.notify_cliq_new_recommendation(String recommendation_id)
 {
-rec_id = ifnull(recommendation_id,"").trim();
-if(rec_id == "")
-{
-	return;
-}
-record = zoho.crm.getRecordById("AI_Recommendations",rec_id.toLong());
-if(record == null)
+if(recommendation_id == null || recommendation_id.trim() == "")
 {
 	return;
 }
-status = ifnull(record.get("Status"),"").toString();
+record = zoho.crm.getRecordById("AI_Recommendations",recommendation_id.toLong());
+if(record == null || record.isEmpty())
+{
+	return;
+}
+status = ifnull(record.get("Status"),"").toString().trim();
 if(status != "Pending Review")
 {
 	return;
 }
-rec_type = ifnull(record.get("Recommendation_Type"),"Not specified").toString();
-target_module = ifnull(record.get("Target_Module"),"").toString();
-target_record = ifnull(record.get("Target_Record_ID"),"").toString();
-message_ref = ifnull(record.get("Message_ID"),"Not available").toString();
-validation_status = ifnull(record.get("Validation_Status"),"Not available").toString();
-if(target_module.trim() == "")
+rec_type = ifnull(record.get("Recommendation_Type"),"").toString().trim();
+category = ifnull(record.get("AI_Category"),"").toString().trim();
+summary = ifnull(record.get("AI_Summary"),"").toString().trim();
+rationale = ifnull(record.get("AI_Rationale"),"").toString().trim();
+confidence = ifnull(record.get("AI_Confidence"),"").toString().trim();
+review_notes = ifnull(record.get("Review_Notes"),"").toString().trim();
+validation_status = ifnull(record.get("Validation_Status"),"").toString().trim();
+target_module = ifnull(record.get("Target_Module"),"").toString().trim();
+target_record_id = ifnull(record.get("Target_Record_ID"),"").toString().trim();
+action_labels = Map();
+action_labels.put("create_crm_task","Create a follow-up task");
+action_labels.put("no_action","No action required");
+action_labels.put("update_lifecycle_stage","Update the customer lifecycle stage");
+action_labels.put("generate_quote","Prepare a quote for review");
+action_label = ifnull(action_labels.get(rec_type),"");
+if(action_label == "")
 {
-	target_module = "Manual review";
+	action_label = rec_type.replaceAll("_"," ");
+	if(action_label == "")
+	{
+		action_label = "Review the customer message";
+	}
 }
-if(target_record.trim() == "")
+category_labels = Map();
+category_labels.put("Quote Request","Quote request");
+category_labels.put("Product Inquiry","Product inquiry");
+category_labels.put("Meeting Request","Meeting request");
+category_labels.put("Support Request","Support request");
+category_labels.put("Partnership","Partnership");
+category_labels.put("Other","Other");
+category_label = ifnull(category_labels.get(category),"");
+if(category_label == "")
 {
-	target_record = "No CRM record matched";
+	category_label = category.replaceAll("_"," ");
+	if(category_label == "")
+	{
+		category_label = "General inquiry";
+	}
 }
-record_url = "https://crm.zoho.com/crm/org883125891/tab/CustomModule1/" + rec_id;
-new_line = hexToText("0A");
-message_text = "*NEW AI RECOMMENDATION*" + new_line + "*Review required before execution*" + new_line + new_line + "*STATUS*" + new_line + "Pending Review" + new_line + new_line + "*RECOMMENDED ACTION*" + new_line + rec_type + new_line + new_line + "*CRM TARGET*" + new_line + "Module: " + target_module + new_line + "Record ID: " + target_record + new_line + new_line + "*VALIDATION*" + new_line + validation_status + new_line + new_line + "*SOURCE MESSAGE*" + new_line + message_ref + new_line + new_line + "*OPEN RECOMMENDATION IN CRM*" + new_line + record_url;
-response = zoho.cliq.postToChannel("airecommendationstest",message_text,"blake_cliq_connection");
+if(summary == "")
+{
+	summary = "The AI identified a customer message that requires review.";
+}
+if(rationale == "")
+{
+	rationale = "Review the source message and confirm whether the recommended action is appropriate.";
+}
+if(review_notes == "")
+{
+	review_notes = "No additional reviewer guidance was provided.";
+}
+confidence_label = "Not specified";
+if(confidence == "high")
+{
+	confidence_label = "High";
+}
+else if(confidence == "medium")
+{
+	confidence_label = "Medium";
+}
+else if(confidence == "low")
+{
+	confidence_label = "Low";
+}
+else if(confidence != "")
+{
+	confidence_label = confidence;
+}
+validation_label = "Needs manual review";
+if(validation_status == "valid")
+{
+	validation_label = "Validated";
+}
+else if(validation_status == "invalid")
+{
+	validation_label = "Validation issue detected";
+}
+else if(validation_status == "fallback")
+{
+	validation_label = "Generated using fallback validation";
+}
+safety_values = ifnull(record.get("Safety_Summary"),List());
+safety_text = "";
+for each  safety_value in safety_values
+{
+	if(safety_text != "")
+	{
+		safety_text = safety_text + ", ";
+	}
+	safety_text = safety_text + safety_value.toString();
+}
+if(safety_text == "")
+{
+	safety_text = "No additional safety flags";
+}
+target_type_labels = Map();
+target_type_labels.put("Leads","Lead");
+target_type_labels.put("Contacts","Contact");
+target_type_labels.put("Accounts","Account");
+target_type_labels.put("Deals","Deal");
+target_type_label = ifnull(target_type_labels.get(target_module),"CRM record");
+target_display = "No matching CRM record";
+target_record_url = "";
+if(target_module != "" && target_record_id != "")
+{
+	target_data = zoho.crm.getRecordById(target_module,target_record_id.toLong());
+	if(target_data != null && !target_data.isEmpty())
+	{
+		target_name = "";
+		if(target_module == "Leads" || target_module == "Contacts")
+		{
+			target_name = ifnull(target_data.get("Full_Name"),"").toString().trim();
+		}
+		else if(target_module == "Accounts")
+		{
+			target_name = ifnull(target_data.get("Account_Name"),"").toString().trim();
+		}
+		else if(target_module == "Deals")
+		{
+			target_name = ifnull(target_data.get("Deal_Name"),"").toString().trim();
+		}
+		if(target_name == "")
+		{
+			target_display = "Matched " + target_type_label;
+		}
+		else
+		{
+			target_display = target_name + " (" + target_type_label + ")";
+		}
+		target_record_url = "https://crm.zoho.com/crm/org883125891/tab/" + target_module + "/" + target_record_id;
+	}
+}
+if(summary.length() > 700)
+{
+	summary = summary.subString(0,699) + "...";
+}
+if(rationale.length() > 700)
+{
+	rationale = rationale.subString(0,699) + "...";
+}
+if(review_notes.length() > 500)
+{
+	review_notes = review_notes.subString(0,499) + "...";
+}
+record_url = "https://crm.zoho.com/crm/org883125891/tab/CustomModule1/" + recommendation_id;
+recommendation_details = List();
+action_row = Map();
+action_row.put("Recommended action",action_label);
+recommendation_details.add(action_row);
+category_row = Map();
+category_row.put("Request type",category_label);
+recommendation_details.add(category_row);
+summary_row = Map();
+summary_row.put("Customer request",summary);
+recommendation_details.add(summary_row);
+rationale_row = Map();
+rationale_row.put("Why this is recommended",rationale);
+recommendation_details.add(rationale_row);
+confidence_row = Map();
+confidence_row.put("AI confidence",confidence_label);
+recommendation_details.add(confidence_row);
+if(category == "Meeting Request")
+{
+	meeting_guidance = "Schedule it from the CRM record using New Meeting under Open Activities.";
+	if(target_record_url == "")
+	{
+		meeting_guidance = "Approve first to create the record, then schedule from it using New Meeting under Open Activities.";
+	}
+	meeting_row = Map();
+	meeting_row.put("Meeting requested","The sender asked for a call or meeting. " + meeting_guidance);
+	recommendation_details.add(meeting_row);
+}
+review_details = List();
+target_row = Map();
+target_row.put("CRM record",target_display);
+review_details.add(target_row);
+safety_row = Map();
+safety_row.put("Safety review",safety_text);
+review_details.add(safety_row);
+validation_row = Map();
+validation_row.put("Validation",validation_label);
+review_details.add(validation_row);
+notes_row = Map();
+notes_row.put("Reviewer guidance",review_notes);
+review_details.add(notes_row);
+recommendation_slide = Map();
+recommendation_slide.put("type","label");
+recommendation_slide.put("title","Recommendation");
+recommendation_slide.put("data",recommendation_details);
+review_slide = Map();
+review_slide.put("type","label");
+review_slide.put("title","Review details");
+review_slide.put("data",review_details);
+slides = List();
+slides.add(recommendation_slide);
+slides.add(review_slide);
+open_recommendation_action_data = Map();
+open_recommendation_action_data.put("web",record_url);
+open_recommendation_action = Map();
+open_recommendation_action.put("type","open.url");
+open_recommendation_action.put("data",open_recommendation_action_data);
+open_recommendation_button = Map();
+open_recommendation_button.put("label","Open Recommendation");
+open_recommendation_button.put("type","+");
+open_recommendation_button.put("action",open_recommendation_action);
+buttons = List();
+buttons.add(open_recommendation_button);
+if(target_record_url != "")
+{
+	open_target_action_data = Map();
+	open_target_action_data.put("web",target_record_url);
+	open_target_action = Map();
+	open_target_action.put("type","open.url");
+	open_target_action.put("data",open_target_action_data);
+	open_target_button = Map();
+	open_target_button.put("label","Open " + target_type_label);
+	open_target_button.put("type","+");
+	open_target_button.put("action",open_target_action);
+	buttons.add(open_target_button);
+}
+card = Map();
+card.put("theme","modern-inline");
+card.put("title","AI Recommendation: " + action_label);
+message = Map();
+message.put("text","A new AI recommendation is ready for review before any CRM action is performed.");
+message.put("card",card);
+message.put("slides",slides);
+message.put("buttons",buttons);
+response = zoho.cliq.postToChannel("airecommendationstest",message,"blake_cliq_connection");
+info response;
 }
